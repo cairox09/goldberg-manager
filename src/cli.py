@@ -21,21 +21,14 @@ ou criar um ambiente virtual:
 
 from __future__ import annotations
 
-import os
-import sys
-from dataclasses import dataclass
+from config import AppConfig, load_config, save_config
+
 from pathlib import Path
-from typing import Optional
+import os
 
 
 APP_NAME = "Goldberg Manager"
 APP_VERSION = "0.1.0"
-
-
-@dataclass(slots=True)
-class AppConfig:
-    goldberg_root: Optional[Path] = None
-    theme: str = "dark"
 
 
 class MissingDependencyError(RuntimeError):
@@ -82,7 +75,9 @@ def clear_screen() -> None:
 
 def render_header() -> None:
     title = Text(f"{APP_NAME}", style="bold")
-    subtitle = Text(f"v{APP_VERSION}  •  Linux / Proton / Wine / Heroic / Lutris", style="dim")
+    subtitle = Text(
+        f"v{APP_VERSION}  •  Linux / Proton / Wine / Heroic / Lutris", style="dim"
+    )
 
     panel = Panel.fit(
         Text.assemble(title, "\n", subtitle),
@@ -101,7 +96,9 @@ def render_menu() -> None:
     for key, label in MENU_ITEMS:
         table.add_row(key, label)
 
-    console.print(Panel(table, title="Menu principal", border_style="blue", box=box.ROUNDED))
+    console.print(
+        Panel(table, title="Menu principal", border_style="blue", box=box.ROUNDED)
+    )
 
 
 def ask_menu_choice() -> str:
@@ -125,63 +122,134 @@ def pause(message: str = "Pressione Enter para continuar...") -> None:
 
 
 def show_placeholder(name: str) -> None:
-    console.print(Panel.fit(f"[bold yellow]{name}[/bold yellow]\n\nAinda não implementado.", border_style="yellow", box=box.ROUNDED))
+    console.print(
+        Panel.fit(
+            f"[bold yellow]{name}[/bold yellow]\n\nAinda não implementado.",
+            border_style="yellow",
+            box=box.ROUNDED,
+        )
+    )
     pause()
 
 
-def load_config() -> AppConfig:
-    # Fase 1: configuração em memória. Depois vamos ler config.yaml aqui.
-    return AppConfig()
+def show_settings(config: AppConfig) -> None:
+    while True:
+        clear_screen()
+        render_header()
+        table = Table.grid(padding=(0, 2))
+        table.add_column(style="bold cyan", no_wrap=True)
+        table.add_column(style="white")
 
+        table.add_row("Tema", config.ui.theme)
+        table.add_row("Goldberg root", str(config.goldberg.root))
+        table.add_row("Interfaces generator", str(config.goldberg.interfaces_generator))
+        table.add_row("Emu config generator", str(config.goldberg.emu_config_generator))
+        table.add_row(
+            "Diretórios de jogos",
+            "\n".join(str(path) for path in config.games.directories) or "(nenhum)",
+        )
+
+        console.print(
+            Panel(
+                table,
+                title="Configurações atuais",
+                border_style="green",
+                box=box.ROUNDED,
+            )
+        )
+
+        choice = questionary.select(
+            "O que deseja fazer?",
+            choices=[
+                "Alterar tema",
+                "Definir pasta do Goldberg",
+                "Salvar e voltar",
+                "Voltar sem salvar",
+            ],
+        ).ask()
+
+        if choice == "Alterar tema":
+            new_theme = questionary.select(
+                "Escolha o tema:",
+                choices=["dark", "light", "system"],
+            ).ask()
+
+            if new_theme:
+                config.ui.theme = new_theme
+                save_config(config)
+                console.print(f"[green]Tema salvo:[/green] {new_theme}")
+                pause()
+
+        elif choice == "Definir pasta do Goldberg":
+            new_root = questionary.text(
+                "Digite o caminho da pasta do Goldberg/GBE Fork:",
+                default=str(config.goldberg.root or ""),
+            ).ask()
+
+            if new_root is not None:
+                new_root = new_root.strip()
+                if new_root:
+                    config.goldberg.root = Path(new_root)
+                else:
+                    config.goldberg.root = None
+                save_config(config)
+                console.print("[green]Caminho salvo.[/green]")
+                pause()
+
+        elif choice == "Salvar e voltar":
+            save_config(config)
+            return
+
+        else:
+            return
+            
 
 def start() -> int:
-        config = load_config()
-        _ = config
-    
-        while True:
+    config = load_config()
+    _ = config
+
+    while True:
+        clear_screen()
+        render_header()
+        render_menu()
+
+        choice = ask_menu_choice()
+
+        if choice == "1":
             clear_screen()
             render_header()
-            render_menu()
-    
-            choice = ask_menu_choice()
-    
-            if choice == "1":
-                clear_screen()
-                render_header()
-                show_placeholder("Detectar jogos")
-            elif choice == "2":
-                clear_screen()
-                render_header()
-                show_placeholder("Instalar Goldberg em um jogo")
-            elif choice == "3":
-                clear_screen()
-                render_header()
-                show_placeholder("Gerar steam_interfaces")
-            elif choice == "4":
-                clear_screen()
-                render_header()
-                show_placeholder("Gerar steam_settings")
-            elif choice == "5":
-                clear_screen()
-                render_header()
-                show_placeholder("Backup do jogo")
-            elif choice == "6":
-                clear_screen()
-                render_header()
-                show_placeholder("Restaurar backup")
-            elif choice == "7":
-                clear_screen()
-                render_header()
-                show_placeholder("Abrir pasta do jogo")
-            elif choice == "8":
-                clear_screen()
-                render_header()
-                show_placeholder("Configurações")
-            elif choice == "9":
-                console.print("Saindo...")
-                return 0
-            else:
-                console.print(f"Opção inválida: {choice}")
-                pause()
-    
-        return 0
+            show_placeholder("Detectar jogos")
+        elif choice == "2":
+            clear_screen()
+            render_header()
+            show_placeholder("Instalar Goldberg em um jogo")
+        elif choice == "3":
+            clear_screen()
+            render_header()
+            show_placeholder("Gerar steam_interfaces")
+        elif choice == "4":
+            clear_screen()
+            render_header()
+            show_placeholder("Gerar steam_settings")
+        elif choice == "5":
+            clear_screen()
+            render_header()
+            show_placeholder("Backup do jogo")
+        elif choice == "6":
+            clear_screen()
+            render_header()
+            show_placeholder("Restaurar backup")
+        elif choice == "7":
+            clear_screen()
+            render_header()
+            show_placeholder("Abrir pasta do jogo")
+        elif choice == "8":
+                show_settings(config)
+        elif choice == "9":
+            console.print("Saindo...")
+            return 0
+        else:
+            console.print(f"Opção inválida: {choice}")
+            pause()
+
+    return 0

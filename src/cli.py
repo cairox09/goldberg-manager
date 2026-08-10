@@ -22,6 +22,7 @@ ou criar um ambiente virtual:
 from __future__ import annotations
 
 from config import AppConfig, load_config, save_config
+from scanner import detect_generate_interfaces
 
 from pathlib import Path
 import os
@@ -142,7 +143,12 @@ def show_settings(config: AppConfig) -> None:
 
         table.add_row("Tema", config.ui.theme)
         table.add_row("Goldberg root", str(config.goldberg.root))
-        table.add_row("Interfaces generator", str(config.goldberg.interfaces_generator))
+        table.add_row(
+            "Interfaces generator x64", str(config.goldberg.interfaces_generator_x64)
+        )
+        table.add_row(
+            "Interfaces generator x86", str(config.goldberg.interfaces_generator_x86)
+        )
         table.add_row("Emu config generator", str(config.goldberg.emu_config_generator))
         table.add_row(
             "Diretórios de jogos",
@@ -163,6 +169,7 @@ def show_settings(config: AppConfig) -> None:
             choices=[
                 "Alterar tema",
                 "Definir pasta do Goldberg",
+                "Detectar generate_interfaces",
                 "Salvar e voltar",
                 "Voltar sem salvar",
             ],
@@ -196,13 +203,37 @@ def show_settings(config: AppConfig) -> None:
                 console.print("[green]Caminho salvo.[/green]")
                 pause()
 
+        elif choice == "Detectar generate_interfaces":
+            if config.goldberg.root is None:
+                console.print("[red]Defina primeiro a pasta do Goldberg.[/red]")
+                pause()
+                continue
+
+            x64, x86 = detect_generate_interfaces(config.goldberg.root)
+
+            if x64 is None and x86 is None:
+                console.print("[red]Nenhum generate_interfaces foi encontrado.[/red]")
+                pause()
+                continue
+
+            config.goldberg.interfaces_generator_x64 = x64
+            config.goldberg.interfaces_generator_x86 = x86
+            save_config(config)
+
+            console.print("[green]generate_interfaces detectado e salvo.[/green]")
+            if x64:
+                console.print(f"64-bit: {x64}")
+            if x86:
+                console.print(f"32-bit: {x86}")
+            pause()
+
         elif choice == "Salvar e voltar":
             save_config(config)
             return
 
         else:
             return
-            
+
 
 def start() -> int:
     config = load_config()
@@ -244,7 +275,7 @@ def start() -> int:
             render_header()
             show_placeholder("Abrir pasta do jogo")
         elif choice == "8":
-                show_settings(config)
+            show_settings(config)
         elif choice == "9":
             console.print("Saindo...")
             return 0

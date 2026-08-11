@@ -1,32 +1,16 @@
-#!/usr/bin/env python3
-"""Goldberg Manager - Step 1
-
-Base inicial da interface de terminal usando Rich + Questionary.
-
-Executar no Fish sem usar `pip` diretamente:
-
-    python3 -m pip install --user rich questionary
-
-Se o `pip` estiver quebrando no Fish, o mais seguro é sempre chamar o módulo:
-
-    python3 -m pip ...
-
-ou criar um ambiente virtual:
-
-    python3 -m venv .venv
-    source .venv/bin/activate.fish
-    python -m pip install rich questionary
-
-"""
-
 from __future__ import annotations
 
-from config import AppConfig, load_config, save_config
-from scanner import detect_generate_interfaces
-
-from pathlib import Path
 import os
+from pathlib import Path
 
+from rich import box
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+
+from config import AppConfig, load_config, save_config
+from scanner import detect_games, detect_generate_interfaces
 
 APP_NAME = "Goldberg Manager"
 APP_VERSION = "0.1.0"
@@ -47,13 +31,6 @@ def _require_dependency(name: str):
 
 rich = _require_dependency("rich")
 questionary = _require_dependency("questionary")
-
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
-from rich import box
-
 console = Console()
 
 
@@ -133,6 +110,129 @@ def show_placeholder(name: str) -> None:
     pause()
 
 
+def add_game_directory(config: AppConfig) -> None:
+    new_directory = questionary.text(
+        "Digite o caminho do diretório de jogos:",
+        default="",
+    ).ask()
+
+    if new_directory is None:
+        return
+
+    new_directory = new_directory.strip()
+
+    if not new_directory:
+        console.print("[yellow]Nenhum caminho informado.[/yellow]")
+        pause()
+        return
+
+    directory = Path(new_directory).expanduser()
+
+    if not directory.is_dir():
+        console.print(f"[red]O diretório não existe:[/red] {directory}")
+        pause()
+        return
+
+    directory = directory.resolve()
+
+    if directory in config.games.directories:
+        console.print("[yellow]Esse diretório já está cadastrado.[/yellow]")
+        pause()
+        return
+
+    config.games.directories.append(directory)
+    save_config(config)
+
+    console.print(f"[green]Diretório adicionado:[/green] {directory}")
+    pause()
+
+
+def remove_game_directory(config: AppConfig) -> None:
+    if not config.games.directories:
+        console.print("[yellow]Nenhum diretório cadastrado.[/yellow]")
+        pause()
+        return
+
+    choices = [str(path) for path in config.games.directories]
+    choices.append("Cancelar")
+
+    selected = questionary.select(
+        "Escolha o diretório que deseja remover:",
+        choices=choices,
+    ).ask()
+
+    if selected is None or selected == "Cancelar":
+        return
+
+    directory = Path(selected)
+
+    if directory in config.games.directories:
+        config.games.directories.remove(directory)
+        save_config(config)
+        console.print(f"[green]Diretório removido:[/green] {directory}")
+        pause()
+
+
+def show_games(config: AppConfig) -> None:
+    clear_screen()
+    render_header()
+
+    if not config.games.directories:
+        console.print(
+            Panel.fit(
+                "[yellow]Nenhum diretório de jogos foi configurado.[/yellow]\n\n"
+                "Entre em Configurações e adicione um diretório.",
+                border_style="yellow",
+                box=box.ROUNDED,
+            )
+        )
+        pause()
+        return
+
+
+    games = detect_games(config.games.directories)
+
+    if not games:
+        console.print(
+            Panel.fit(
+                "[yellow]Nenhum jogo compatível foi encontrado.[/yellow]",
+                border_style="yellow",
+                box=box.ROUNDED,
+            )
+        )
+        pause()
+        return
+
+    table = Table(
+        title="Jogos encontrados",
+        box=box.ROUNDED,
+        border_style="green",
+    )
+
+    table.add_column("#", style="bold cyan", justify="right", no_wrap=True)
+    table.add_column("Jogo", style="bold")
+    table.add_column("Arquitetura")
+    table.add_column("Steam API")
+    table.add_column("Executável")
+
+    for index, game in enumerate(games, start=1):
+        architecture = (
+            "64-bit" if game.steam_api.name.lower() == "steam_api64.dll" else "32-bit"
+        )
+
+        table.add_row(
+            str(index),
+            game.name,
+            architecture,
+            game.steam_api.name,
+            game.executable.name if game.executable else "N/A",
+        )
+
+    console.print(table)
+
+    pause()
+
+
 def show_settings(config: AppConfig) -> None:
     while True:
         clear_screen()
@@ -169,6 +269,8 @@ def show_settings(config: AppConfig) -> None:
             choices=[
                 "Alterar tema",
                 "Definir pasta do Goldberg",
+                "Adicionar diretório de jogos",
+                "Remover diretório de jogos",
                 "Detectar generate_interfaces",
                 "Salvar e voltar",
                 "Voltar sem salvar",
@@ -202,6 +304,12 @@ def show_settings(config: AppConfig) -> None:
                 save_config(config)
                 console.print("[green]Caminho salvo.[/green]")
                 pause()
+
+        elif choice == "Adicionar diretório de jogos":
+            add_game_directory(config)
+
+        elif choice == "Remover diretório de jogos":
+            remove_game_directory(config)
 
         elif choice == "Detectar generate_interfaces":
             if config.goldberg.root is None:
@@ -247,9 +355,7 @@ def start() -> int:
         choice = ask_menu_choice()
 
         if choice == "1":
-            clear_screen()
-            render_header()
-            show_placeholder("Detectar jogos")
+            show_games(config)
         elif choice == "2":
             clear_screen()
             render_header()

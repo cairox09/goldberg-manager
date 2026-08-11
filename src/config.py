@@ -115,15 +115,19 @@ def load_config() -> AppConfig:
 
     try:
         raw = json.loads(APP_CONFIG_FILE.read_text(encoding="utf-8"))
+
         if not isinstance(raw, dict):
-            raise ValueError("Config file root is not an object")
+            raise TypeError("Config file root is not an object")
+
         return _dict_to_config(raw)
-    except Exception:
+
+    except (json.JSONDecodeError, OSError, TypeError, KeyError, ValueError):
         backup_file = APP_CONFIG_FILE.with_suffix(".broken.json")
+
         try:
             APP_CONFIG_FILE.replace(backup_file)
-        except Exception:
-            pass
+        except OSError:
+            backup_file = None
 
         config = AppConfig()
         save_config(config)

@@ -3,6 +3,28 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = [
+    "goldberg",
+    "linux",
+    "proton",
+    "steamworks",
+    "wine",
+]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Utilities",
+]
+
 name = "goldberg-manager"
 version = "0.1.0"
 description = "Manage Goldberg/GBE Fork configuration for games on Linux."
@@ -25,3 +47,9 @@ goldberg-manager = "goldberg_manager.cli:start"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[project.urls]
+Homepage = "https://github.com/cairox09/goldberg-manager"
+Repository = "https://github.com/cairox09/goldberg-manager"
+Issues = "https://github.com/cairox09/goldberg-manager/issues"
+Changelog = "https://github.com/cairox09/goldberg-manager/blob/main/CHANGELOG.md"

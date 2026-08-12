@@ -607,15 +607,15 @@ def start() -> int:
         elif choice == "2":
             clear_screen()
             render_header()
-            show_placeholder("Instalar Goldberg em um jogo")
+            show_placeholder("Instalar Goldberg em um jogo [em desenvolvimento]")
         elif choice == "3":
             clear_screen()
             render_header()
-            show_placeholder("Gerar steam_interfaces")
+            show_placeholder("Gerar steam_interfaces [em desenvolvimento]")
         elif choice == "4":
             clear_screen()
             render_header()
-            show_placeholder("Gerar steam_settings")
+            show_placeholder("Gerar steam_settings [em desenvolvimento]")
         elif choice == "5":
             backup_game_menu(config)
 

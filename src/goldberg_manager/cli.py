@@ -45,9 +45,9 @@ console = Console()
 
 MENU_ITEMS = [
     ("1", "Detectar jogos"),
-    ("2", "Instalar Goldberg em um jogo"),
-    ("3", "Gerar steam_interfaces"),
-    ("4", "Gerar steam_settings"),
+    ("2", "Instalar Goldberg em um jogo [em desenvolvimento]"),
+    ("3", "Gerar steam_interfaces [em desenvolvimento]"),
+    ("4", "Gerar steam_settings [em desenvolvimento]"),
     ("5", "Backup do jogo"),
     ("6", "Restaurar backup"),
     ("7", "Abrir pasta do jogo"),
@@ -111,7 +111,8 @@ def pause(message: str = "Pressione Enter para continuar...") -> None:
 def show_placeholder(name: str) -> None:
     console.print(
         Panel.fit(
-            f"[bold yellow]{name}[/bold yellow]\n\nAinda não implementado.",
+            f"[bold yellow]{name}[/bold yellow]\n\n"
+            "Esta funcionalidade ainda está em desenvolvimento.",
             border_style="yellow",
             box=box.ROUNDED,
         )
@@ -606,15 +607,15 @@ def start() -> int:
         elif choice == "2":
             clear_screen()
             render_header()
-            show_placeholder("Instalar Goldberg em um jogo")
+            show_placeholder("Instalar Goldberg em um jogo [em desenvolvimento]")
         elif choice == "3":
             clear_screen()
             render_header()
-            show_placeholder("Gerar steam_interfaces")
+            show_placeholder("Gerar steam_interfaces [em desenvolvimento]")
         elif choice == "4":
             clear_screen()
             render_header()
-            show_placeholder("Gerar steam_settings")
+            show_placeholder("Gerar steam_settings [em desenvolvimento]")
         elif choice == "5":
             backup_game_menu(config)
 

@@ -7,9 +7,11 @@ from pathlib import Path
 @dataclass(slots=True)
 class Game:
     name: str
-    directory: Path
-    executable: Path | None
-    steam_api: Path | None
+    root_directory: Path
+    executable: Path
+    steam_api: Path
+    steam_api_relative_path: Path
+    architecture: str
     source_directory: Path
 
 
@@ -111,6 +113,34 @@ def _get_game_name(game_directory: Path) -> str:
     return game_directory.name
 
 
+def _find_game_root(steam_api: Path) -> Path:
+    current = steam_api.parent
+
+    generic_names = {
+        "gamedata",
+        "game",
+        "games",
+        "bin",
+        "binaries",
+        "x64",
+        "x86",
+        "win64",
+        "win32",
+    }
+
+    if current.name.lower() in generic_names and current.parent != current:
+        return current.parent
+
+    return current
+
+
+def _get_architecture(steam_api: Path) -> str:
+    if steam_api.name.lower() == "steam_api64.dll":
+        return "64-bit"
+
+    return "32-bit"
+
+
 def detect_games(directories: list[Path]) -> list[Game]:
     games: list[Game] = []
     seen_directories: set[Path] = set()
@@ -136,12 +166,18 @@ def detect_games(directories: list[Path]) -> list[Game]:
 
             seen_directories.add(resolved_directory)
 
+            game_root = _find_game_root(steam_api)
+            architecture = _get_architecture(steam_api)
+            steam_api_relative_path = steam_api.relative_to(game_root)
+
             games.append(
                 Game(
-                    name=_get_game_name(game_directory),
-                    directory=game_directory,
+                    name=_get_game_name(game_root),
+                    root_directory=game_root,
                     executable=executable,
                     steam_api=steam_api,
+                    steam_api_relative_path=steam_api_relative_path,
+                    architecture=architecture,
                     source_directory=source_directory,
                 )
             )

@@ -9,6 +9,14 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from backup import (
+    backup_game,
+    current_file_matches_backup,
+    has_backup,
+    has_backup_metadata,
+    restore_game_backup,
+    verify_backup,
+)
 from config import AppConfig, load_config, save_config
 from scanner import detect_games, detect_generate_interfaces
 
@@ -173,6 +181,128 @@ def remove_game_directory(config: AppConfig) -> None:
         pause()
 
 
+def create_game_backup(game) -> None:
+    if has_backup(game):
+        console.print(
+            "[yellow]Já existe um backup da Steam API para este jogo.[/yellow]"
+        )
+        pause()
+        return
+
+    confirm = questionary.confirm(
+        "Deseja criar um backup da Steam API original?",
+        default=True,
+    ).ask()
+
+    if not confirm:
+        return
+
+    try:
+        backup_path = backup_game(game)
+    except (OSError, FileExistsError) as exc:
+        console.print(f"[red]Erro ao criar backup:[/red] {exc}")
+        pause()
+        return
+
+    console.print("[green]Backup criado com sucesso.[/green]")
+    console.print(f"[dim]{backup_path}[/dim]")
+    pause()
+
+
+def restore_game_api(game) -> None:
+    if not has_backup(game):
+        console.print("[yellow]Nenhum backup foi encontrado para este jogo.[/yellow]")
+        pause()
+        return
+
+    confirm = questionary.confirm(
+        "Restaurar a Steam API original?",
+        default=False,
+    ).ask()
+
+    if not confirm:
+        return
+
+    try:
+        restore_game_backup(game)
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Erro ao restaurar backup:[/red] {exc}")
+        pause()
+        return
+
+    console.print("[green]Steam API original restaurada com sucesso.[/green]")
+    pause()
+
+
+def show_game_details(game) -> None:
+    while True:
+        clear_screen()
+        render_header()
+
+        table = Table.grid(padding=(0, 2))
+        table.add_column(style="bold cyan", no_wrap=True)
+        table.add_column(style="white")
+
+        table.add_row("Nome", game.name)
+        table.add_row("Arquitetura", game.architecture)
+        table.add_row("Raiz do jogo", str(game.root_directory))
+        table.add_row("Executável", str(game.executable))
+        table.add_row("Steam API", str(game.steam_api))
+        table.add_row(
+            "Steam API relativa",
+            str(game.steam_api_relative_path),
+        )
+        if not has_backup(game):
+            backup_status = "Não"
+        elif not has_backup_metadata(game):
+            backup_status = "Sim • sem metadados"
+        elif verify_backup(game):
+            backup_status = "Sim • íntegro"
+        else:
+            backup_status = "Sim • CORROMPIDO"
+
+        table.add_row("Backup", backup_status)
+        if not has_backup(game):
+            current_status = "Desconhecido"
+        elif current_file_matches_backup(game):
+            current_status = "Original"
+        else:
+            current_status = "Modificado"
+
+        table.add_row("Steam API atual", current_status)
+        table.add_row(
+            "Origem da detecção",
+            str(game.source_directory),
+        )
+
+        console.print(
+            Panel(
+                table,
+                title="Detalhes do jogo",
+                border_style="green",
+                box=box.ROUNDED,
+            )
+        )
+
+        choice = questionary.select(
+            "O que deseja fazer?",
+            choices=[
+                "Fazer backup da Steam API",
+                "Restaurar Steam API original",
+                "Voltar",
+            ],
+        ).ask()
+
+        if choice == "Fazer backup da Steam API":
+            create_game_backup(game)
+
+        elif choice == "Restaurar Steam API original":
+            restore_game_api(game)
+
+        else:
+            return
+
+
 def show_games(config: AppConfig) -> None:
     clear_screen()
     render_header()
@@ -188,7 +318,6 @@ def show_games(config: AppConfig) -> None:
         )
         pause()
         return
-
 
     games = detect_games(config.games.directories)
 
@@ -216,21 +345,30 @@ def show_games(config: AppConfig) -> None:
     table.add_column("Executável")
 
     for index, game in enumerate(games, start=1):
-        architecture = (
-            "64-bit" if game.steam_api.name.lower() == "steam_api64.dll" else "32-bit"
-        )
-
         table.add_row(
             str(index),
             game.name,
-            architecture,
+            game.architecture,
             game.steam_api.name,
-            game.executable.name if game.executable else "N/A",
+            game.executable.name,
         )
 
     console.print(table)
 
-    pause()
+    choices = [game.name for game in games]
+    choices.append("Voltar")
+
+    selected = questionary.select(
+        "Selecione um jogo:",
+        choices=choices,
+    ).ask()
+
+    if selected is None or selected == "Voltar":
+        return
+
+    selected_game = next(game for game in games if game.name == selected)
+
+    show_game_details(selected_game)
 
 
 def show_settings(config: AppConfig) -> None:

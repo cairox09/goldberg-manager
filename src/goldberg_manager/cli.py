@@ -19,6 +19,7 @@ from .backup import (
     verify_backup,
 )
 from .config import AppConfig, load_config, save_config
+from .generators import generate_game_steam_interfaces
 from .scanner import Game, detect_games, detect_generate_interfaces
 
 APP_NAME = "Goldberg Manager"
@@ -46,7 +47,7 @@ console = Console()
 MENU_ITEMS = [
     ("1", "Detectar jogos"),
     ("2", "Instalar Goldberg em um jogo [em desenvolvimento]"),
-    ("3", "Gerar steam_interfaces [em desenvolvimento]"),
+    ("3", "Gerar steam_interfaces"),
     ("4", "Gerar steam_settings [em desenvolvimento]"),
     ("5", "Backup do jogo"),
     ("6", "Restaurar backup"),
@@ -524,6 +525,66 @@ def show_settings(config: AppConfig) -> None:
             return
 
 
+def generate_steam_interfaces_menu(config: AppConfig) -> None:
+    clear_screen()
+    render_header()
+
+    games = get_detected_games(config)
+
+    if games is None:
+        return
+
+    game = select_game(
+        games,
+        "Selecione o jogo para gerar steam_interfaces:",
+    )
+
+    if game is None:
+        return
+
+    if not has_backup(game):
+        console.print(
+            "[yellow]Este jogo ainda não possui backup da Steam API original.[/yellow]"
+        )
+        console.print(
+            "Crie primeiro um backup usando a opção [bold]Backup do jogo[/bold]."
+        )
+        pause()
+        return
+
+    if not verify_backup(game):
+        console.print(
+            "[red]O backup da Steam API não passou pela "
+            "verificação de integridade.[/red]"
+        )
+        pause()
+        return
+
+    confirm = questionary.confirm(
+        f"Gerar steam_interfaces.txt para {game.name}?",
+        default=True,
+    ).ask()
+
+    if not confirm:
+        return
+
+    try:
+        output_path = generate_game_steam_interfaces(
+            game,
+            config.goldberg.interfaces_generator_x64,
+            config.goldberg.interfaces_generator_x86,
+            command_prefix=("wine",),
+        )
+    except (FileNotFoundError, RuntimeError, ValueError, OSError) as exc:
+        console.print(f"[red]Erro ao gerar steam_interfaces.txt:[/red] {exc}")
+        pause()
+        return
+
+    console.print("[green]steam_interfaces.txt gerado com sucesso.[/green]")
+    console.print(f"[dim]{output_path}[/dim]")
+    pause()
+
+
 def backup_game_menu(config: AppConfig) -> None:
     clear_screen()
     render_header()
@@ -609,9 +670,7 @@ def start() -> int:
             render_header()
             show_placeholder("Instalar Goldberg em um jogo [em desenvolvimento]")
         elif choice == "3":
-            clear_screen()
-            render_header()
-            show_placeholder("Gerar steam_interfaces [em desenvolvimento]")
+            generate_steam_interfaces_menu(config)
         elif choice == "4":
             clear_screen()
             render_header()

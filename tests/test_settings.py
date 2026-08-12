@@ -4,9 +4,13 @@ from pathlib import Path
 
 from goldberg_manager.scanner import Game
 from goldberg_manager.settings import (
+    SteamSettingsSnapshot,
     SteamUserSettings,
     generate_game_steam_settings,
     generate_user_config,
+    read_game_steam_settings,
+    read_steam_appid,
+    read_user_config,
 )
 
 
@@ -233,6 +237,160 @@ class SteamSettingsTests(unittest.TestCase):
             self.assertEqual(
                 steam_interfaces.read_text(encoding="utf-8"),
                 "SteamClient021\n",
+            )
+
+    def test_reads_existing_game_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+
+            steam_api = root / "steam_api64.dll"
+            steam_api.write_bytes(b"steam api")
+
+            steam_settings = root / "steam_settings"
+            steam_settings.mkdir()
+
+            (steam_settings / "steam_appid.txt").write_text(
+                "883710\n",
+                encoding="utf-8",
+            )
+
+            (steam_settings / "configs.user.ini").write_text(
+                "[user::general]\n"
+                "account_name=Davi\n"
+                "account_steamid=76561198000000000\n"
+                "language=brazilian\n"
+                "ip_country=BR\n"
+                "\n"
+                "[user::saves]\n"
+                "local_save_path=./saves\n",
+                encoding="utf-8",
+            )
+
+            (steam_settings / "steam_interfaces.txt").write_text(
+                "SteamClient021\n",
+                encoding="utf-8",
+            )
+
+            game = Game(
+                name="Example Game",
+                root_directory=root,
+                executable=root / "Game.exe",
+                steam_api=steam_api,
+                steam_api_relative_path=Path("steam_api64.dll"),
+                architecture="64-bit",
+                source_directory=root,
+            )
+
+            snapshot = read_game_steam_settings(game)
+
+            self.assertEqual(snapshot.app_id, 883710)
+            self.assertEqual(
+                snapshot.account_name,
+                "Davi",
+            )
+            self.assertEqual(
+                snapshot.account_steamid,
+                76561198000000000,
+            )
+            self.assertEqual(
+                snapshot.language,
+                "brazilian",
+            )
+            self.assertEqual(
+                snapshot.ip_country,
+                "BR",
+            )
+            self.assertEqual(
+                snapshot.local_save_path,
+                "./saves",
+            )
+            self.assertIsNone(snapshot.saves_folder_name)
+            self.assertTrue(snapshot.has_steam_interfaces)
+
+    def test_reads_missing_settings_as_empty_snapshot(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+
+            steam_api = root / "steam_api64.dll"
+            steam_api.write_bytes(b"steam api")
+
+            game = Game(
+                name="Example Game",
+                root_directory=root,
+                executable=root / "Game.exe",
+                steam_api=steam_api,
+                steam_api_relative_path=Path("steam_api64.dll"),
+                architecture="64-bit",
+                source_directory=root,
+            )
+
+            snapshot = read_game_steam_settings(game)
+
+            self.assertIsInstance(
+                snapshot,
+                SteamSettingsSnapshot,
+            )
+
+            self.assertIsNone(snapshot.app_id)
+            self.assertIsNone(snapshot.account_name)
+            self.assertIsNone(snapshot.account_steamid)
+            self.assertIsNone(snapshot.language)
+            self.assertIsNone(snapshot.ip_country)
+            self.assertIsNone(snapshot.local_save_path)
+            self.assertIsNone(snapshot.saves_folder_name)
+            self.assertFalse(snapshot.has_steam_interfaces)
+
+    def test_rejects_invalid_existing_appid(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            steam_settings = Path(temp_directory) / "steam_settings"
+
+            steam_settings.mkdir()
+
+            (steam_settings / "steam_appid.txt").write_text(
+                "banana\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "Steam AppID inválido",
+            ):
+                read_steam_appid(
+                    steam_settings,
+                )
+
+    def test_reads_partial_user_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            steam_settings = Path(temp_directory) / "steam_settings"
+
+            steam_settings.mkdir()
+
+            (steam_settings / "configs.user.ini").write_text(
+                "[user::general]\n"
+                "language=english\n"
+                "\n"
+                "[user::saves]\n"
+                "saves_folder_name=Custom Saves\n",
+                encoding="utf-8",
+            )
+
+            snapshot = read_user_config(
+                steam_settings,
+            )
+
+            self.assertIsNone(snapshot.account_name)
+            self.assertIsNone(snapshot.account_steamid)
+            self.assertEqual(
+                snapshot.language,
+                "english",
+            )
+            self.assertIsNone(snapshot.ip_country)
+            self.assertIsNone(snapshot.local_save_path)
+            self.assertEqual(
+                snapshot.saves_folder_name,
+                "Custom Saves",
             )
 
 

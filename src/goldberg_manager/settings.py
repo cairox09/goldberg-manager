@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import configparser
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,6 +16,18 @@ class SteamUserSettings:
     ip_country: str | None = None
     local_save_path: str | None = None
     saves_folder_name: str | None = None
+
+
+@dataclass(slots=True)
+class SteamSettingsSnapshot:
+    app_id: int | None = None
+    account_name: str | None = None
+    account_steamid: int | None = None
+    language: str | None = None
+    ip_country: str | None = None
+    local_save_path: str | None = None
+    saves_folder_name: str | None = None
+    has_steam_interfaces: bool = False
 
 
 def generate_user_config(
@@ -118,3 +131,137 @@ def generate_game_steam_settings(
     )
 
     return app_id_path, user_config_path
+
+
+def _read_optional_value(
+    parser: configparser.ConfigParser,
+    section: str,
+    option: str,
+) -> str | None:
+    if not parser.has_option(section, option):
+        return None
+
+    value = parser.get(section, option).strip()
+
+    return value or None
+
+
+def read_steam_appid(
+    steam_settings_directory: Path,
+) -> int | None:
+    app_id_path = steam_settings_directory / "steam_appid.txt"
+
+    if not app_id_path.is_file():
+        return None
+
+    value = app_id_path.read_text(
+        encoding="utf-8",
+    ).strip()
+
+    if not value:
+        raise ValueError("steam_appid.txt está vazio.")
+
+    try:
+        app_id = int(value)
+    except ValueError as exc:
+        raise ValueError(f"Steam AppID inválido em {app_id_path}: {value!r}") from exc
+
+    if app_id <= 0:
+        raise ValueError(f"Steam AppID inválido em {app_id_path}: {app_id}")
+
+    return app_id
+
+
+def read_user_config(
+    steam_settings_directory: Path,
+) -> SteamSettingsSnapshot:
+    config_path = steam_settings_directory / "configs.user.ini"
+
+    snapshot = SteamSettingsSnapshot()
+
+    if not config_path.is_file():
+        return snapshot
+
+    parser = configparser.ConfigParser(
+        interpolation=None,
+    )
+
+    try:
+        with config_path.open(
+            "r",
+            encoding="utf-8",
+        ) as file:
+            parser.read_file(file)
+    except configparser.Error as exc:
+        raise ValueError(f"configs.user.ini inválido: {exc}") from exc
+
+    snapshot.account_name = _read_optional_value(
+        parser,
+        "user::general",
+        "account_name",
+    )
+
+    steam_id = _read_optional_value(
+        parser,
+        "user::general",
+        "account_steamid",
+    )
+
+    if steam_id is not None:
+        try:
+            snapshot.account_steamid = int(steam_id)
+        except ValueError as exc:
+            raise ValueError(
+                f"SteamID64 inválido em configs.user.ini: {steam_id!r}"
+            ) from exc
+
+        if snapshot.account_steamid <= 0:
+            raise ValueError(
+                f"SteamID64 inválido em configs.user.ini: {snapshot.account_steamid}"
+            )
+
+    snapshot.language = _read_optional_value(
+        parser,
+        "user::general",
+        "language",
+    )
+
+    snapshot.ip_country = _read_optional_value(
+        parser,
+        "user::general",
+        "ip_country",
+    )
+
+    snapshot.local_save_path = _read_optional_value(
+        parser,
+        "user::saves",
+        "local_save_path",
+    )
+
+    snapshot.saves_folder_name = _read_optional_value(
+        parser,
+        "user::saves",
+        "saves_folder_name",
+    )
+
+    return snapshot
+
+
+def read_game_steam_settings(
+    game: Game,
+) -> SteamSettingsSnapshot:
+    steam_settings_directory = game.steam_api.parent / "steam_settings"
+
+    snapshot = read_user_config(
+        steam_settings_directory,
+    )
+
+    snapshot.app_id = read_steam_appid(
+        steam_settings_directory,
+    )
+
+    snapshot.has_steam_interfaces = (
+        steam_settings_directory / "steam_interfaces.txt"
+    ).is_file()
+
+    return snapshot

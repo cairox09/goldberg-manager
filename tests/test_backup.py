@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from backup import (
+from goldberg_manager.backup import (
     backup_game,
     current_file_matches_backup,
     get_backup_path,
@@ -13,7 +13,7 @@ from backup import (
     restore_game_backup,
     verify_backup,
 )
-from scanner import Game
+from goldberg_manager.scanner import Game
 
 
 class BackupTests(unittest.TestCase):
@@ -44,7 +44,7 @@ class BackupTests(unittest.TestCase):
 
             backup_root = temporary_path / "backups"
 
-            with patch("backup.BACKUP_ROOT", backup_root):
+            with patch("goldberg_manager.backup.BACKUP_ROOT", backup_root):
                 backup_path = backup_game(game)
 
                 self.assertTrue(backup_path.is_file())
@@ -91,7 +91,7 @@ class BackupTests(unittest.TestCase):
 
             backup_root = temporary_path / "backups"
 
-            with patch("backup.BACKUP_ROOT", backup_root):
+            with patch("goldberg_manager.backup.BACKUP_ROOT", backup_root):
                 backup_game(game)
 
                 backup_path = get_backup_path(game)

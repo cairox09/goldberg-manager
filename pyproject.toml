@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "goldberg-manager"
+version = "0.1.0"
+description = "Manage Goldberg/GBE Fork configuration for games on Linux."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "questionary>=2.0",
+    "rich>=13.0",
+]
+
+[project.scripts]
+goldberg-manager = "goldberg_manager.cli:start"
+
+[tool.setuptools.packages.find]
+where = ["src"]

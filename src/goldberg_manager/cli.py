@@ -21,6 +21,10 @@ from .backup import (
 from .config import AppConfig, load_config, save_config
 from .generators import generate_game_steam_interfaces
 from .scanner import Game, detect_games, detect_generate_interfaces
+from .settings import (
+    SteamUserSettings,
+    generate_game_steam_settings,
+)
 
 APP_NAME = "Goldberg Manager"
 APP_VERSION = "0.1.0"
@@ -48,7 +52,7 @@ MENU_ITEMS = [
     ("1", "Detectar jogos"),
     ("2", "Instalar Goldberg em um jogo [em desenvolvimento]"),
     ("3", "Gerar steam_interfaces"),
-    ("4", "Gerar steam_settings [em desenvolvimento]"),
+    ("4", "Gerar steam_settings"),
     ("5", "Backup do jogo"),
     ("6", "Restaurar backup"),
     ("7", "Abrir pasta do jogo"),
@@ -585,6 +589,252 @@ def generate_steam_interfaces_menu(config: AppConfig) -> None:
     pause()
 
 
+def generate_steam_settings_menu(config: AppConfig) -> None:
+    clear_screen()
+    render_header()
+
+    games = get_detected_games(config)
+
+    if games is None:
+        return
+
+    game = select_game(
+        games,
+        "Selecione o jogo para configurar steam_settings:",
+    )
+
+    if game is None:
+        return
+
+    app_id_answer = questionary.text(
+        "Steam AppID:",
+        default="",
+    ).ask()
+
+    if app_id_answer is None:
+        return
+
+    try:
+        app_id = int(app_id_answer.strip())
+
+        if app_id <= 0:
+            raise ValueError
+    except ValueError:
+        console.print(
+            "[red]Steam AppID inválido. Digite um número inteiro positivo.[/red]"
+        )
+        pause()
+        return
+
+    account_name = questionary.text(
+        "Nome/Nick:",
+        default="Player",
+    ).ask()
+
+    if account_name is None:
+        return
+
+    account_name = account_name.strip()
+
+    if not account_name:
+        console.print("[red]O nome da conta não pode ficar vazio.[/red]")
+        pause()
+        return
+
+    steam_id_answer = questionary.text(
+        "SteamID64 (deixe vazio para não definir):",
+        default="",
+    ).ask()
+
+    if steam_id_answer is None:
+        return
+
+    steam_id_answer = steam_id_answer.strip()
+
+    account_steamid: int | None = None
+
+    if steam_id_answer:
+        try:
+            account_steamid = int(steam_id_answer)
+
+            if account_steamid <= 0:
+                raise ValueError
+        except ValueError:
+            console.print(
+                "[red]SteamID64 inválido. Digite somente números ou deixe vazio.[/red]"
+            )
+            pause()
+            return
+
+    language = questionary.text(
+        "Idioma:",
+        default="brazilian",
+    ).ask()
+
+    if language is None:
+        return
+
+    language = language.strip() or None
+
+    ip_country = questionary.text(
+        "País (código de duas letras):",
+        default="BR",
+    ).ask()
+
+    if ip_country is None:
+        return
+
+    ip_country = ip_country.strip() or None
+
+    use_local_save = questionary.confirm(
+        "Usar saves locais/portáteis?",
+        default=True,
+    ).ask()
+
+    if use_local_save is None:
+        return
+
+    local_save_path: str | None = None
+    saves_folder_name: str | None = None
+
+    if use_local_save:
+        local_save_answer = questionary.text(
+            "Caminho dos saves locais:",
+            default="./saves",
+        ).ask()
+
+        if local_save_answer is None:
+            return
+
+        local_save_path = local_save_answer.strip()
+
+        if not local_save_path:
+            console.print("[red]O caminho dos saves não pode ficar vazio.[/red]")
+            pause()
+            return
+
+    else:
+        saves_folder_answer = questionary.text(
+            "Nome personalizado da pasta global de saves "
+            "(deixe vazio para usar o padrão):",
+            default="",
+        ).ask()
+
+        if saves_folder_answer is None:
+            return
+
+        saves_folder_name = saves_folder_answer.strip() or None
+
+    user_settings = SteamUserSettings(
+        account_name=account_name,
+        account_steamid=account_steamid,
+        language=language,
+        ip_country=ip_country,
+        local_save_path=local_save_path,
+        saves_folder_name=saves_folder_name,
+    )
+
+    steam_settings_directory = game.steam_api.parent / "steam_settings"
+
+    app_id_path = steam_settings_directory / "steam_appid.txt"
+
+    user_config_path = steam_settings_directory / "configs.user.ini"
+
+    table = Table.grid(padding=(0, 2))
+    table.add_column(style="bold cyan")
+    table.add_column()
+
+    table.add_row("Jogo", game.name)
+    table.add_row("AppID", str(app_id))
+    table.add_row("Nick", account_name)
+    table.add_row(
+        "SteamID64",
+        str(account_steamid) if account_steamid is not None else "(não definido)",
+    )
+    table.add_row(
+        "Idioma",
+        language or "(não definido)",
+    )
+    table.add_row(
+        "País",
+        ip_country or "(não definido)",
+    )
+
+    if local_save_path:
+        table.add_row(
+            "Save",
+            f"Local/portátil: {local_save_path}",
+        )
+    elif saves_folder_name:
+        table.add_row(
+            "Save",
+            f"Pasta global: {saves_folder_name}",
+        )
+    else:
+        table.add_row(
+            "Save",
+            "Configuração padrão",
+        )
+
+    console.print(
+        Panel(
+            table,
+            title="Configuração a ser gerada",
+            border_style="cyan",
+            box=box.ROUNDED,
+        )
+    )
+
+    existing_files = [
+        path
+        for path in (
+            app_id_path,
+            user_config_path,
+        )
+        if path.exists()
+    ]
+
+    if existing_files:
+        console.print(
+            "[yellow]Atenção: os seguintes arquivos "
+            "já existem e serão substituídos:[/yellow]"
+        )
+
+        for path in existing_files:
+            console.print(f"[yellow]• {path}[/yellow]")
+
+    confirm = questionary.confirm(
+        "Gerar esta configuração?",
+        default=not existing_files,
+    ).ask()
+
+    if not confirm:
+        return
+
+    try:
+        generated_app_id, generated_user_config = generate_game_steam_settings(
+            game,
+            app_id,
+            user_settings,
+        )
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Erro ao gerar steam_settings:[/red] {exc}")
+        pause()
+        return
+
+    console.print()
+    console.print("[green]steam_settings gerado com sucesso![/green]")
+    console.print(f"[green]✓[/green] {generated_app_id}")
+    console.print(f"[green]✓[/green] {generated_user_config}")
+
+    steam_interfaces = steam_settings_directory / "steam_interfaces.txt"
+
+    if steam_interfaces.is_file():
+        console.print(f"[green]✓[/green] {steam_interfaces} [dim](preservado)[/dim]")
+
+    pause()
+
+
 def backup_game_menu(config: AppConfig) -> None:
     clear_screen()
     render_header()
@@ -665,16 +915,18 @@ def start() -> int:
 
         if choice == "1":
             show_games(config)
+
         elif choice == "2":
             clear_screen()
             render_header()
             show_placeholder("Instalar Goldberg em um jogo [em desenvolvimento]")
+
         elif choice == "3":
             generate_steam_interfaces_menu(config)
+
         elif choice == "4":
-            clear_screen()
-            render_header()
-            show_placeholder("Gerar steam_settings [em desenvolvimento]")
+            generate_steam_settings_menu(config)
+
         elif choice == "5":
             backup_game_menu(config)
 
@@ -686,9 +938,11 @@ def start() -> int:
 
         elif choice == "8":
             show_settings(config)
+
         elif choice == "9":
             console.print("Saindo...")
             return 0
+
         else:
             console.print(f"Opção inválida: {choice}")
             pause()

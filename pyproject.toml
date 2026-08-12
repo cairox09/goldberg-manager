@@ -13,6 +13,11 @@ dependencies = [
     "rich>=13.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "ruff",
+]
+
 [project.scripts]
 goldberg-manager = "goldberg_manager.cli:start"
 

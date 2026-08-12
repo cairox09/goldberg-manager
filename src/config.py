@@ -12,7 +12,8 @@ APP_CONFIG_FILE = APP_CONFIG_DIR / "config.json"
 @dataclass(slots=True)
 class GoldbergConfig:
     root: Path | None = None
-    interfaces_generator: Path | None = None
+    interfaces_generator_x64: Path | None = None
+    interfaces_generator_x86: Path | None = None
     emu_config_generator: Path | None = None
 
 
@@ -53,7 +54,12 @@ def _config_to_dict(config: AppConfig) -> dict[str, Any]:
     return {
         "goldberg": {
             "root": _path_to_str(config.goldberg.root),
-            "interfaces_generator": _path_to_str(config.goldberg.interfaces_generator),
+            "interfaces_generator_x64": _path_to_str(
+                config.goldberg.interfaces_generator_x64
+            ),
+            "interfaces_generator_x86": _path_to_str(
+                config.goldberg.interfaces_generator_x86
+            ),
             "emu_config_generator": _path_to_str(config.goldberg.emu_config_generator),
         },
         "games": {
@@ -73,8 +79,11 @@ def _dict_to_config(data: dict[str, Any]) -> AppConfig:
     return AppConfig(
         goldberg=GoldbergConfig(
             root=_str_to_path(goldberg_data.get("root")),
-            interfaces_generator=_str_to_path(
-                goldberg_data.get("interfaces_generator")
+            interfaces_generator_x64=_str_to_path(
+                goldberg_data.get("interfaces_generator_x64")
+            ),
+            interfaces_generator_x86=_str_to_path(
+                goldberg_data.get("interfaces_generator_x86")
             ),
             emu_config_generator=_str_to_path(
                 goldberg_data.get("emu_config_generator")
@@ -106,15 +115,19 @@ def load_config() -> AppConfig:
 
     try:
         raw = json.loads(APP_CONFIG_FILE.read_text(encoding="utf-8"))
+
         if not isinstance(raw, dict):
-            raise ValueError("Config file root is not an object")
+            raise TypeError("Config file root is not an object")
+
         return _dict_to_config(raw)
-    except Exception:
+
+    except (json.JSONDecodeError, OSError, TypeError, KeyError, ValueError):
         backup_file = APP_CONFIG_FILE.with_suffix(".broken.json")
+
         try:
             APP_CONFIG_FILE.replace(backup_file)
-        except Exception:
-            pass
+        except OSError:
+            backup_file = None
 
         config = AppConfig()
         save_config(config)

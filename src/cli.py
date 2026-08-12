@@ -1,31 +1,24 @@
-#!/usr/bin/env python3
-"""Goldberg Manager - Step 1
-
-Base inicial da interface de terminal usando Rich + Questionary.
-
-Executar no Fish sem usar `pip` diretamente:
-
-    python3 -m pip install --user rich questionary
-
-Se o `pip` estiver quebrando no Fish, o mais seguro é sempre chamar o módulo:
-
-    python3 -m pip ...
-
-ou criar um ambiente virtual:
-
-    python3 -m venv .venv
-    source .venv/bin/activate.fish
-    python -m pip install rich questionary
-
-"""
-
 from __future__ import annotations
 
-from config import AppConfig, load_config, save_config
-
-from pathlib import Path
 import os
+from pathlib import Path
 
+from rich import box
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+
+from backup import (
+    backup_game,
+    current_file_matches_backup,
+    has_backup,
+    has_backup_metadata,
+    restore_game_backup,
+    verify_backup,
+)
+from config import AppConfig, load_config, save_config
+from scanner import detect_games, detect_generate_interfaces
 
 APP_NAME = "Goldberg Manager"
 APP_VERSION = "0.1.0"
@@ -46,13 +39,6 @@ def _require_dependency(name: str):
 
 rich = _require_dependency("rich")
 questionary = _require_dependency("questionary")
-
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
-from rich import box
-
 console = Console()
 
 
@@ -132,6 +118,259 @@ def show_placeholder(name: str) -> None:
     pause()
 
 
+def add_game_directory(config: AppConfig) -> None:
+    new_directory = questionary.text(
+        "Digite o caminho do diretório de jogos:",
+        default="",
+    ).ask()
+
+    if new_directory is None:
+        return
+
+    new_directory = new_directory.strip()
+
+    if not new_directory:
+        console.print("[yellow]Nenhum caminho informado.[/yellow]")
+        pause()
+        return
+
+    directory = Path(new_directory).expanduser()
+
+    if not directory.is_dir():
+        console.print(f"[red]O diretório não existe:[/red] {directory}")
+        pause()
+        return
+
+    directory = directory.resolve()
+
+    if directory in config.games.directories:
+        console.print("[yellow]Esse diretório já está cadastrado.[/yellow]")
+        pause()
+        return
+
+    config.games.directories.append(directory)
+    save_config(config)
+
+    console.print(f"[green]Diretório adicionado:[/green] {directory}")
+    pause()
+
+
+def remove_game_directory(config: AppConfig) -> None:
+    if not config.games.directories:
+        console.print("[yellow]Nenhum diretório cadastrado.[/yellow]")
+        pause()
+        return
+
+    choices = [str(path) for path in config.games.directories]
+    choices.append("Cancelar")
+
+    selected = questionary.select(
+        "Escolha o diretório que deseja remover:",
+        choices=choices,
+    ).ask()
+
+    if selected is None or selected == "Cancelar":
+        return
+
+    directory = Path(selected)
+
+    if directory in config.games.directories:
+        config.games.directories.remove(directory)
+        save_config(config)
+        console.print(f"[green]Diretório removido:[/green] {directory}")
+        pause()
+
+
+def create_game_backup(game) -> None:
+    if has_backup(game):
+        console.print(
+            "[yellow]Já existe um backup da Steam API para este jogo.[/yellow]"
+        )
+        pause()
+        return
+
+    confirm = questionary.confirm(
+        "Deseja criar um backup da Steam API original?",
+        default=True,
+    ).ask()
+
+    if not confirm:
+        return
+
+    try:
+        backup_path = backup_game(game)
+    except (OSError, FileExistsError) as exc:
+        console.print(f"[red]Erro ao criar backup:[/red] {exc}")
+        pause()
+        return
+
+    console.print("[green]Backup criado com sucesso.[/green]")
+    console.print(f"[dim]{backup_path}[/dim]")
+    pause()
+
+
+def restore_game_api(game) -> None:
+    if not has_backup(game):
+        console.print("[yellow]Nenhum backup foi encontrado para este jogo.[/yellow]")
+        pause()
+        return
+
+    confirm = questionary.confirm(
+        "Restaurar a Steam API original?",
+        default=False,
+    ).ask()
+
+    if not confirm:
+        return
+
+    try:
+        restore_game_backup(game)
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Erro ao restaurar backup:[/red] {exc}")
+        pause()
+        return
+
+    console.print("[green]Steam API original restaurada com sucesso.[/green]")
+    pause()
+
+
+def show_game_details(game) -> None:
+    while True:
+        clear_screen()
+        render_header()
+
+        table = Table.grid(padding=(0, 2))
+        table.add_column(style="bold cyan", no_wrap=True)
+        table.add_column(style="white")
+
+        table.add_row("Nome", game.name)
+        table.add_row("Arquitetura", game.architecture)
+        table.add_row("Raiz do jogo", str(game.root_directory))
+        table.add_row("Executável", str(game.executable))
+        table.add_row("Steam API", str(game.steam_api))
+        table.add_row(
+            "Steam API relativa",
+            str(game.steam_api_relative_path),
+        )
+        if not has_backup(game):
+            backup_status = "Não"
+        elif not has_backup_metadata(game):
+            backup_status = "Sim • sem metadados"
+        elif verify_backup(game):
+            backup_status = "Sim • íntegro"
+        else:
+            backup_status = "Sim • CORROMPIDO"
+
+        table.add_row("Backup", backup_status)
+        if not has_backup(game):
+            current_status = "Desconhecido"
+        elif current_file_matches_backup(game):
+            current_status = "Original"
+        else:
+            current_status = "Modificado"
+
+        table.add_row("Steam API atual", current_status)
+        table.add_row(
+            "Origem da detecção",
+            str(game.source_directory),
+        )
+
+        console.print(
+            Panel(
+                table,
+                title="Detalhes do jogo",
+                border_style="green",
+                box=box.ROUNDED,
+            )
+        )
+
+        choice = questionary.select(
+            "O que deseja fazer?",
+            choices=[
+                "Fazer backup da Steam API",
+                "Restaurar Steam API original",
+                "Voltar",
+            ],
+        ).ask()
+
+        if choice == "Fazer backup da Steam API":
+            create_game_backup(game)
+
+        elif choice == "Restaurar Steam API original":
+            restore_game_api(game)
+
+        else:
+            return
+
+
+def show_games(config: AppConfig) -> None:
+    clear_screen()
+    render_header()
+
+    if not config.games.directories:
+        console.print(
+            Panel.fit(
+                "[yellow]Nenhum diretório de jogos foi configurado.[/yellow]\n\n"
+                "Entre em Configurações e adicione um diretório.",
+                border_style="yellow",
+                box=box.ROUNDED,
+            )
+        )
+        pause()
+        return
+
+    games = detect_games(config.games.directories)
+
+    if not games:
+        console.print(
+            Panel.fit(
+                "[yellow]Nenhum jogo compatível foi encontrado.[/yellow]",
+                border_style="yellow",
+                box=box.ROUNDED,
+            )
+        )
+        pause()
+        return
+
+    table = Table(
+        title="Jogos encontrados",
+        box=box.ROUNDED,
+        border_style="green",
+    )
+
+    table.add_column("#", style="bold cyan", justify="right", no_wrap=True)
+    table.add_column("Jogo", style="bold")
+    table.add_column("Arquitetura")
+    table.add_column("Steam API")
+    table.add_column("Executável")
+
+    for index, game in enumerate(games, start=1):
+        table.add_row(
+            str(index),
+            game.name,
+            game.architecture,
+            game.steam_api.name,
+            game.executable.name,
+        )
+
+    console.print(table)
+
+    choices = [game.name for game in games]
+    choices.append("Voltar")
+
+    selected = questionary.select(
+        "Selecione um jogo:",
+        choices=choices,
+    ).ask()
+
+    if selected is None or selected == "Voltar":
+        return
+
+    selected_game = next(game for game in games if game.name == selected)
+
+    show_game_details(selected_game)
+
+
 def show_settings(config: AppConfig) -> None:
     while True:
         clear_screen()
@@ -142,7 +381,12 @@ def show_settings(config: AppConfig) -> None:
 
         table.add_row("Tema", config.ui.theme)
         table.add_row("Goldberg root", str(config.goldberg.root))
-        table.add_row("Interfaces generator", str(config.goldberg.interfaces_generator))
+        table.add_row(
+            "Interfaces generator x64", str(config.goldberg.interfaces_generator_x64)
+        )
+        table.add_row(
+            "Interfaces generator x86", str(config.goldberg.interfaces_generator_x86)
+        )
         table.add_row("Emu config generator", str(config.goldberg.emu_config_generator))
         table.add_row(
             "Diretórios de jogos",
@@ -163,6 +407,9 @@ def show_settings(config: AppConfig) -> None:
             choices=[
                 "Alterar tema",
                 "Definir pasta do Goldberg",
+                "Adicionar diretório de jogos",
+                "Remover diretório de jogos",
+                "Detectar generate_interfaces",
                 "Salvar e voltar",
                 "Voltar sem salvar",
             ],
@@ -196,13 +443,43 @@ def show_settings(config: AppConfig) -> None:
                 console.print("[green]Caminho salvo.[/green]")
                 pause()
 
+        elif choice == "Adicionar diretório de jogos":
+            add_game_directory(config)
+
+        elif choice == "Remover diretório de jogos":
+            remove_game_directory(config)
+
+        elif choice == "Detectar generate_interfaces":
+            if config.goldberg.root is None:
+                console.print("[red]Defina primeiro a pasta do Goldberg.[/red]")
+                pause()
+                continue
+
+            x64, x86 = detect_generate_interfaces(config.goldberg.root)
+
+            if x64 is None and x86 is None:
+                console.print("[red]Nenhum generate_interfaces foi encontrado.[/red]")
+                pause()
+                continue
+
+            config.goldberg.interfaces_generator_x64 = x64
+            config.goldberg.interfaces_generator_x86 = x86
+            save_config(config)
+
+            console.print("[green]generate_interfaces detectado e salvo.[/green]")
+            if x64:
+                console.print(f"64-bit: {x64}")
+            if x86:
+                console.print(f"32-bit: {x86}")
+            pause()
+
         elif choice == "Salvar e voltar":
             save_config(config)
             return
 
         else:
             return
-            
+
 
 def start() -> int:
     config = load_config()
@@ -216,9 +493,7 @@ def start() -> int:
         choice = ask_menu_choice()
 
         if choice == "1":
-            clear_screen()
-            render_header()
-            show_placeholder("Detectar jogos")
+            show_games(config)
         elif choice == "2":
             clear_screen()
             render_header()
@@ -244,7 +519,7 @@ def start() -> int:
             render_header()
             show_placeholder("Abrir pasta do jogo")
         elif choice == "8":
-                show_settings(config)
+            show_settings(config)
         elif choice == "9":
             console.print("Saindo...")
             return 0

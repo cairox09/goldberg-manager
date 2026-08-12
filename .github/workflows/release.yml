@@ -1,0 +1,139 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.11"
+          - "3.12"
+          - "3.13"
+          - "3.14"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install project
+        run: python -m pip install -e ".[dev]"
+
+      - name: Check formatting
+        run: ruff format --check src/ tests/
+
+      - name: Run Ruff
+        run: ruff check src/ tests/
+
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+
+  build:
+    name: Build release
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Install build tools
+        run: python -m pip install -e ".[dev]"
+
+      - name: Verify release version
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+
+          from goldberg_manager.cli import APP_VERSION
+
+          tag_version = os.environ["GITHUB_REF_NAME"].removeprefix("v")
+
+          with open("pyproject.toml", "rb") as file:
+              package_version = tomllib.load(file)["project"]["version"]
+
+          if package_version != tag_version:
+              raise SystemExit(
+                  f"pyproject.toml version {package_version!r} "
+                  f"does not match tag {tag_version!r}"
+              )
+
+          if APP_VERSION != tag_version:
+              raise SystemExit(
+                  f"APP_VERSION {APP_VERSION!r} "
+                  f"does not match tag {tag_version!r}"
+              )
+
+          print(f"Release version verified: {tag_version}")
+          PY
+
+      - name: Build distributions
+        run: python -m build
+
+      - name: Validate distributions
+        run: python -m twine check dist/*
+
+      - name: Generate SHA-256 checksums
+        run: |
+          cd dist
+          sha256sum *.whl *.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-distributions
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: release-distributions
+          path: dist
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          EXTRA_FLAGS=()
+
+          if [[ "$GITHUB_REF_NAME" == v0.* ]]; then
+            EXTRA_FLAGS+=(--prerelease)
+          fi
+
+          gh release create "$GITHUB_REF_NAME" \
+            dist/* \
+            --verify-tag \
+            --generate-notes \
+            --fail-on-no-commits \
+            "${EXTRA_FLAGS[@]}"

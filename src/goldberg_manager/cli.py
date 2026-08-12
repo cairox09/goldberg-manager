@@ -10,7 +10,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from backup import (
+from .backup import (
     backup_game,
     current_file_matches_backup,
     has_backup,
@@ -18,8 +18,8 @@ from backup import (
     restore_game_backup,
     verify_backup,
 )
-from config import AppConfig, load_config, save_config
-from scanner import Game, detect_games, detect_generate_interfaces
+from .config import AppConfig, load_config, save_config
+from .scanner import Game, detect_games, detect_generate_interfaces
 
 APP_NAME = "Goldberg Manager"
 APP_VERSION = "0.1.0"

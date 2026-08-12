@@ -5,6 +5,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from .backup import get_backup_path, verify_backup
+from .scanner import Game
+
 
 def generate_steam_appid(
     steam_settings_directory: Path,
@@ -79,3 +82,57 @@ def generate_steam_interfaces(
         )
 
         return output_path
+
+
+def select_interfaces_generator(
+    game: Game,
+    generator_x64: Path | None,
+    generator_x86: Path | None,
+) -> Path:
+    if game.architecture == "64-bit":
+        generator = generator_x64
+    elif game.architecture == "32-bit":
+        generator = generator_x86
+    else:
+        raise ValueError(f"Arquitetura não suportada: {game.architecture}")
+
+    if generator is None:
+        raise FileNotFoundError(
+            f"Nenhum generate_interfaces configurado para jogos {game.architecture}."
+        )
+
+    if not generator.is_file():
+        raise FileNotFoundError(f"Gerador de interfaces não encontrado: {generator}")
+
+    return generator
+
+
+def generate_game_steam_interfaces(
+    game: Game,
+    generator_x64: Path | None,
+    generator_x86: Path | None,
+    *,
+    command_prefix: tuple[str, ...] = (),
+) -> Path:
+    if not verify_backup(game):
+        raise ValueError(
+            "É necessário um backup íntegro da Steam API original "
+            "antes de gerar steam_interfaces.txt."
+        )
+
+    generator = select_interfaces_generator(
+        game,
+        generator_x64,
+        generator_x86,
+    )
+
+    original_steam_api = get_backup_path(game)
+
+    steam_settings_directory = game.steam_api.parent / "steam_settings"
+
+    return generate_steam_interfaces(
+        generator,
+        original_steam_api,
+        steam_settings_directory,
+        command_prefix=command_prefix,
+    )

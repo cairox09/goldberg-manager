@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from .generators import generate_steam_appid
+from .scanner import Game
+
 
 @dataclass(slots=True)
 class SteamUserSettings:
@@ -92,3 +95,26 @@ def generate_user_config(
     )
 
     return output_path
+
+
+def generate_game_steam_settings(
+    game: Game,
+    app_id: int,
+    user_settings: SteamUserSettings,
+) -> tuple[Path, Path]:
+    if app_id <= 0:
+        raise ValueError("O Steam AppID deve ser um número inteiro positivo.")
+
+    steam_settings_directory = game.steam_api.parent / "steam_settings"
+
+    user_config_path = generate_user_config(
+        steam_settings_directory,
+        user_settings,
+    )
+
+    app_id_path = generate_steam_appid(
+        steam_settings_directory,
+        app_id,
+    )
+
+    return app_id_path, user_config_path

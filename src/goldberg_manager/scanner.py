@@ -128,8 +128,8 @@ def _find_game_root(steam_api: Path) -> Path:
         "win32",
     }
 
-    if current.name.lower() in generic_names and current.parent != current:
-        return current.parent
+    while current.name.lower() in generic_names and current.parent != current:
+        current = current.parent
 
     return current
 

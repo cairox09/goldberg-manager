@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 
 from rich import box
@@ -18,7 +19,7 @@ from backup import (
     verify_backup,
 )
 from config import AppConfig, load_config, save_config
-from scanner import detect_games, detect_generate_interfaces
+from scanner import Game, detect_games, detect_generate_interfaces
 
 APP_NAME = "Goldberg Manager"
 APP_VERSION = "0.1.0"
@@ -303,6 +304,47 @@ def show_game_details(game) -> None:
             return
 
 
+def get_detected_games(config: AppConfig) -> list[Game] | None:
+    if not config.games.directories:
+        console.print("[yellow]Nenhum diretório de jogos foi configurado.[/yellow]")
+        console.print("Adicione um diretório em Configurações.")
+        pause()
+        return None
+
+    games = detect_games(config.games.directories)
+
+    if not games:
+        console.print("[yellow]Nenhum jogo compatível foi encontrado.[/yellow]")
+        pause()
+        return None
+
+    return games
+
+
+def select_game(
+    games: list[Game],
+    message: str = "Selecione um jogo:",
+) -> Game | None:
+    choices = [
+        f"{index} - {game.name} [{game.architecture}]"
+        for index, game in enumerate(games, start=1)
+    ]
+
+    choices.append("Voltar")
+
+    selected = questionary.select(
+        message,
+        choices=choices,
+    ).ask()
+
+    if selected is None or selected == "Voltar":
+        return None
+
+    index = int(selected.split(" - ", 1)[0]) - 1
+
+    return games[index]
+
+
 def show_games(config: AppConfig) -> None:
     clear_screen()
     render_header()
@@ -481,6 +523,73 @@ def show_settings(config: AppConfig) -> None:
             return
 
 
+def backup_game_menu(config: AppConfig) -> None:
+    clear_screen()
+    render_header()
+
+    games = get_detected_games(config)
+
+    if games is None:
+        return
+
+    game = select_game(
+        games,
+        "Selecione o jogo para criar o backup:",
+    )
+
+    if game is None:
+        return
+
+    create_game_backup(game)
+
+
+def restore_game_menu(config: AppConfig) -> None:
+    clear_screen()
+    render_header()
+
+    games = get_detected_games(config)
+
+    if games is None:
+        return
+
+    game = select_game(
+        games,
+        "Selecione o jogo que deseja restaurar:",
+    )
+
+    if game is None:
+        return
+
+    restore_game_api(game)
+
+
+def open_game_directory_menu(config: AppConfig) -> None:
+    clear_screen()
+    render_header()
+
+    games = get_detected_games(config)
+
+    if games is None:
+        return
+
+    game = select_game(
+        games,
+        "Selecione o jogo cuja pasta deseja abrir:",
+    )
+
+    if game is None:
+        return
+
+    try:
+        subprocess.run(
+            ["xdg-open", str(game.root_directory)],
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        console.print(f"[red]Não foi possível abrir a pasta do jogo:[/red] {exc}")
+        pause()
+
+
 def start() -> int:
     config = load_config()
     _ = config
@@ -507,17 +616,14 @@ def start() -> int:
             render_header()
             show_placeholder("Gerar steam_settings")
         elif choice == "5":
-            clear_screen()
-            render_header()
-            show_placeholder("Backup do jogo")
+            backup_game_menu(config)
+
         elif choice == "6":
-            clear_screen()
-            render_header()
-            show_placeholder("Restaurar backup")
+            restore_game_menu(config)
+
         elif choice == "7":
-            clear_screen()
-            render_header()
-            show_placeholder("Abrir pasta do jogo")
+            open_game_directory_menu(config)
+
         elif choice == "8":
             show_settings(config)
         elif choice == "9":

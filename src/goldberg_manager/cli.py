@@ -24,6 +24,9 @@ from .scanner import Game, detect_games, detect_generate_interfaces
 from .settings import (
     SteamUserSettings,
     generate_game_steam_settings,
+    read_game_steam_settings,
+    update_game_steam_appid,
+    update_user_setting,
 )
 
 APP_NAME = "Goldberg Manager"
@@ -52,7 +55,7 @@ MENU_ITEMS = [
     ("1", "Detectar jogos"),
     ("2", "Instalar Goldberg em um jogo [em desenvolvimento]"),
     ("3", "Gerar steam_interfaces"),
-    ("4", "Gerar steam_settings"),
+    ("4", "Gerenciar steam_settings"),
     ("5", "Backup do jogo"),
     ("6", "Restaurar backup"),
     ("7", "Abrir pasta do jogo"),
@@ -589,6 +592,457 @@ def generate_steam_interfaces_menu(config: AppConfig) -> None:
     pause()
 
 
+def show_current_steam_settings_menu(
+    config: AppConfig,
+) -> None:
+    clear_screen()
+    render_header()
+
+    games = get_detected_games(config)
+
+    if games is None:
+        return
+
+    game = select_game(
+        games,
+        "Selecione o jogo para visualizar steam_settings:",
+    )
+
+    if game is None:
+        return
+
+    try:
+        snapshot = read_game_steam_settings(game)
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Erro ao ler steam_settings:[/red] {exc}")
+        pause()
+        return
+
+    steam_settings_directory = game.steam_api.parent / "steam_settings"
+
+    app_id_file = steam_settings_directory / "steam_appid.txt"
+
+    user_config_file = steam_settings_directory / "configs.user.ini"
+
+    interfaces_file = steam_settings_directory / "steam_interfaces.txt"
+
+    if (
+        not app_id_file.is_file()
+        and not user_config_file.is_file()
+        and not interfaces_file.is_file()
+    ):
+        console.print(
+            Panel.fit(
+                "[yellow]Nenhuma configuração "
+                "steam_settings foi encontrada "
+                "para este jogo.[/yellow]",
+                border_style="yellow",
+                box=box.ROUNDED,
+            )
+        )
+        pause()
+        return
+
+    table = Table.grid(padding=(0, 2))
+    table.add_column(
+        style="bold cyan",
+        no_wrap=True,
+    )
+    table.add_column(style="white")
+
+    table.add_row(
+        "Jogo",
+        game.name,
+    )
+
+    table.add_row(
+        "AppID",
+        str(snapshot.app_id) if snapshot.app_id is not None else "(não definido)",
+    )
+
+    table.add_row(
+        "Nick",
+        snapshot.account_name or "(não definido)",
+    )
+
+    table.add_row(
+        "SteamID64",
+        str(snapshot.account_steamid)
+        if snapshot.account_steamid is not None
+        else "(não definido / automático)",
+    )
+
+    table.add_row(
+        "Idioma",
+        snapshot.language or "(não definido)",
+    )
+
+    table.add_row(
+        "País",
+        snapshot.ip_country or "(não definido)",
+    )
+
+    if snapshot.local_save_path:
+        save_status = f"Local/portátil: {snapshot.local_save_path}"
+
+    elif snapshot.saves_folder_name:
+        save_status = f"Pasta global: {snapshot.saves_folder_name}"
+
+    else:
+        save_status = "Padrão / não definido"
+
+    table.add_row(
+        "Saves",
+        save_status,
+    )
+
+    table.add_row(
+        "steam_appid.txt",
+        "Presente" if app_id_file.is_file() else "Ausente",
+    )
+
+    table.add_row(
+        "configs.user.ini",
+        "Presente" if user_config_file.is_file() else "Ausente",
+    )
+
+    table.add_row(
+        "steam_interfaces.txt",
+        "Presente" if snapshot.has_steam_interfaces else "Ausente",
+    )
+
+    console.print(
+        Panel(
+            table,
+            title="Configuração atual",
+            border_style="green",
+            box=box.ROUNDED,
+        )
+    )
+
+    console.print()
+    console.print(f"[dim]{steam_settings_directory}[/dim]")
+
+    pause()
+
+
+def edit_steam_settings_menu(
+    config: AppConfig,
+) -> None:
+    clear_screen()
+    render_header()
+
+    games = get_detected_games(config)
+
+    if games is None:
+        return
+
+    game = select_game(
+        games,
+        "Selecione o jogo cuja configuração deseja editar:",
+    )
+
+    if game is None:
+        return
+
+    steam_settings_directory = game.steam_api.parent / "steam_settings"
+
+    while True:
+        clear_screen()
+        render_header()
+
+        try:
+            snapshot = read_game_steam_settings(game)
+        except (OSError, ValueError) as exc:
+            console.print(f"[red]Erro ao ler steam_settings:[/red] {exc}")
+            pause()
+            return
+
+        app_id_display = (
+            str(snapshot.app_id) if snapshot.app_id is not None else "(não definido)"
+        )
+
+        nick_display = snapshot.account_name or "(não definido)"
+
+        steam_id_display = (
+            str(snapshot.account_steamid)
+            if snapshot.account_steamid is not None
+            else "(automático)"
+        )
+
+        language_display = snapshot.language or "(não definido)"
+
+        country_display = snapshot.ip_country or "(não definido)"
+
+        if snapshot.local_save_path:
+            saves_display = f"Local/portátil: {snapshot.local_save_path}"
+
+        elif snapshot.saves_folder_name:
+            saves_display = f"Pasta global: {snapshot.saves_folder_name}"
+
+        else:
+            saves_display = "Padrão do GBE"
+
+        choices = [
+            f"AppID — {app_id_display}",
+            f"Nick — {nick_display}",
+            f"SteamID64 — {steam_id_display}",
+            f"Idioma — {language_display}",
+            f"País — {country_display}",
+            f"Saves — {saves_display}",
+            "Voltar",
+        ]
+
+        choice = questionary.select(
+            f"Editar steam_settings de {game.name}:",
+            choices=choices,
+        ).ask()
+
+        if choice is None or choice == "Voltar":
+            return
+
+        try:
+            if choice.startswith("AppID —"):
+                answer = questionary.text(
+                    "Novo Steam AppID:",
+                    default=(
+                        str(snapshot.app_id) if snapshot.app_id is not None else ""
+                    ),
+                ).ask()
+
+                if answer is None:
+                    continue
+
+                try:
+                    app_id = int(answer.strip())
+
+                    if app_id <= 0:
+                        raise ValueError
+
+                except ValueError:
+                    console.print(
+                        "[red]Steam AppID inválido. "
+                        "Digite um número inteiro positivo.[/red]"
+                    )
+                    pause()
+                    continue
+
+                update_game_steam_appid(
+                    game,
+                    app_id,
+                )
+
+                console.print("[green]AppID atualizado com sucesso.[/green]")
+                pause()
+
+            elif choice.startswith("Nick —"):
+                answer = questionary.text(
+                    "Novo Nome/Nick:",
+                    default=snapshot.account_name or "Player",
+                ).ask()
+
+                if answer is None:
+                    continue
+
+                update_user_setting(
+                    steam_settings_directory,
+                    "account_name",
+                    answer,
+                )
+
+                console.print("[green]Nick atualizado com sucesso.[/green]")
+                pause()
+
+            elif choice.startswith("SteamID64 —"):
+                answer = questionary.text(
+                    "Novo SteamID64 (deixe vazio para voltar ao automático):",
+                    default=(
+                        str(snapshot.account_steamid)
+                        if snapshot.account_steamid is not None
+                        else ""
+                    ),
+                ).ask()
+
+                if answer is None:
+                    continue
+
+                value = answer.strip() or None
+
+                update_user_setting(
+                    steam_settings_directory,
+                    "account_steamid",
+                    value,
+                )
+
+                if value is None:
+                    console.print(
+                        "[green]SteamID64 removido. "
+                        "O GBE poderá usar o modo automático.[/green]"
+                    )
+                else:
+                    console.print("[green]SteamID64 atualizado com sucesso.[/green]")
+
+                pause()
+
+            elif choice.startswith("Idioma —"):
+                answer = questionary.text(
+                    "Novo idioma (vazio remove a configuração):",
+                    default=snapshot.language or "",
+                ).ask()
+
+                if answer is None:
+                    continue
+
+                update_user_setting(
+                    steam_settings_directory,
+                    "language",
+                    answer.strip() or None,
+                )
+
+                console.print("[green]Idioma atualizado com sucesso.[/green]")
+                pause()
+
+            elif choice.startswith("País —"):
+                answer = questionary.text(
+                    "Novo país (duas letras; vazio remove):",
+                    default=snapshot.ip_country or "",
+                ).ask()
+
+                if answer is None:
+                    continue
+
+                update_user_setting(
+                    steam_settings_directory,
+                    "ip_country",
+                    answer.strip() or None,
+                )
+
+                console.print("[green]País atualizado com sucesso.[/green]")
+                pause()
+
+            elif choice.startswith("Saves —"):
+                save_choice = questionary.select(
+                    "Modo de saves:",
+                    choices=[
+                        "Usar save local/portátil",
+                        "Usar pasta global personalizada",
+                        "Usar padrão do GBE",
+                        "Cancelar",
+                    ],
+                ).ask()
+
+                if save_choice is None or save_choice == "Cancelar":
+                    continue
+
+                if save_choice == "Usar save local/portátil":
+                    answer = questionary.text(
+                        "Caminho dos saves locais:",
+                        default=(snapshot.local_save_path or "./saves"),
+                    ).ask()
+
+                    if answer is None:
+                        continue
+
+                    path = answer.strip()
+
+                    if not path:
+                        console.print(
+                            "[red]O caminho dos saves não pode ficar vazio.[/red]"
+                        )
+                        pause()
+                        continue
+
+                    update_user_setting(
+                        steam_settings_directory,
+                        "local_save_path",
+                        path,
+                    )
+
+                    console.print("[green]Save local/portátil ativado.[/green]")
+                    pause()
+
+                elif save_choice == "Usar pasta global personalizada":
+                    answer = questionary.text(
+                        "Nome da pasta global de saves:",
+                        default=(snapshot.saves_folder_name or "GSE Saves"),
+                    ).ask()
+
+                    if answer is None:
+                        continue
+
+                    folder_name = answer.strip()
+
+                    if not folder_name:
+                        console.print(
+                            "[red]O nome da pasta não pode ficar vazio.[/red]"
+                        )
+                        pause()
+                        continue
+
+                    update_user_setting(
+                        steam_settings_directory,
+                        "saves_folder_name",
+                        folder_name,
+                    )
+
+                    console.print("[green]Pasta global de saves atualizada.[/green]")
+                    pause()
+
+                elif save_choice == "Usar padrão do GBE":
+                    update_user_setting(
+                        steam_settings_directory,
+                        "local_save_path",
+                        None,
+                    )
+
+                    update_user_setting(
+                        steam_settings_directory,
+                        "saves_folder_name",
+                        None,
+                    )
+
+                    console.print(
+                        "[green]Configuração personalizada de saves removida.[/green]"
+                    )
+                    pause()
+
+        except (OSError, ValueError) as exc:
+            console.print(
+                f"[red]Não foi possível atualizar a configuração:[/red] {exc}"
+            )
+            pause()
+
+
+def manage_steam_settings_menu(
+    config: AppConfig,
+) -> None:
+    while True:
+        clear_screen()
+        render_header()
+
+        choice = questionary.select(
+            "Gerenciar steam_settings:",
+            choices=[
+                "Ver configuração atual",
+                "Editar configuração",
+                "Criar / substituir configuração",
+                "Voltar",
+            ],
+        ).ask()
+
+        if choice is None or choice == "Voltar":
+            return
+
+        if choice == "Ver configuração atual":
+            show_current_steam_settings_menu(config)
+
+        elif choice == "Editar configuração":
+            edit_steam_settings_menu(config)
+
+        elif choice == "Criar / substituir configuração":
+            generate_steam_settings_menu(config)
+
+
 def generate_steam_settings_menu(config: AppConfig) -> None:
     clear_screen()
     render_header()
@@ -925,7 +1379,7 @@ def start() -> int:
             generate_steam_interfaces_menu(config)
 
         elif choice == "4":
-            generate_steam_settings_menu(config)
+            manage_steam_settings_menu(config)
 
         elif choice == "5":
             backup_game_menu(config)

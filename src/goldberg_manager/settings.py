@@ -265,3 +265,241 @@ def read_game_steam_settings(
     ).is_file()
 
     return snapshot
+
+
+_USER_SETTING_LOCATIONS = {
+    "account_name": (
+        "user::general",
+        "account_name",
+    ),
+    "account_steamid": (
+        "user::general",
+        "account_steamid",
+    ),
+    "language": (
+        "user::general",
+        "language",
+    ),
+    "ip_country": (
+        "user::general",
+        "ip_country",
+    ),
+    "local_save_path": (
+        "user::saves",
+        "local_save_path",
+    ),
+    "saves_folder_name": (
+        "user::saves",
+        "saves_folder_name",
+    ),
+}
+
+
+def _find_ini_section(
+    lines: list[str],
+    section: str,
+) -> tuple[int | None, int | None]:
+    section_start: int | None = None
+
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+
+        if not (stripped.startswith("[") and stripped.endswith("]")):
+            continue
+
+        current_section = stripped[1:-1].strip()
+
+        if section_start is not None:
+            return section_start, index
+
+        if current_section.casefold() == section.casefold():
+            section_start = index
+
+    if section_start is not None:
+        return section_start, len(lines)
+
+    return None, None
+
+
+def _update_ini_option(
+    path: Path,
+    section: str,
+    option: str,
+    value: str | None,
+) -> Path:
+    if path.is_file():
+        lines = path.read_text(
+            encoding="utf-8",
+        ).splitlines()
+    else:
+        lines = []
+
+    section_start, section_end = _find_ini_section(
+        lines,
+        section,
+    )
+
+    if section_start is None:
+        if value is None:
+            return path
+
+        if lines and lines[-1].strip():
+            lines.append("")
+
+        lines.extend(
+            [
+                f"[{section}]",
+                f"{option}={value}",
+            ]
+        )
+
+    else:
+        assert section_end is not None
+
+        option_index: int | None = None
+
+        for index in range(
+            section_start + 1,
+            section_end,
+        ):
+            stripped = lines[index].lstrip()
+
+            if not stripped:
+                continue
+
+            if stripped.startswith(("#", ";")):
+                continue
+
+            key, separator, _ = lines[index].partition("=")
+
+            if separator and key.strip().casefold() == option.casefold():
+                option_index = index
+                break
+
+        if value is None:
+            if option_index is not None:
+                del lines[option_index]
+
+        elif option_index is not None:
+            line = lines[option_index]
+
+            indentation = line[: len(line) - len(line.lstrip())]
+
+            lines[option_index] = f"{indentation}{option}={value}"
+
+        else:
+            insertion_index = section_end
+
+            while (
+                insertion_index > section_start + 1
+                and not lines[insertion_index - 1].strip()
+            ):
+                insertion_index -= 1
+
+            lines.insert(
+                insertion_index,
+                f"{option}={value}",
+            )
+
+    path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    if lines:
+        content = "\n".join(lines) + "\n"
+    else:
+        content = ""
+
+    path.write_text(
+        content,
+        encoding="utf-8",
+    )
+
+    return path
+
+
+def update_user_setting(
+    steam_settings_directory: Path,
+    field: str,
+    value: str | int | None,
+) -> Path:
+    location = _USER_SETTING_LOCATIONS.get(field)
+
+    if location is None:
+        raise ValueError(f"Configuração de usuário desconhecida: {field}")
+
+    normalized_value: str | None
+
+    if field == "account_name":
+        if value is None:
+            raise ValueError("O nome da conta não pode ficar vazio.")
+
+        normalized_value = str(value).strip()
+
+        if not normalized_value:
+            raise ValueError("O nome da conta não pode ficar vazio.")
+
+    elif field == "account_steamid":
+        if value is None or not str(value).strip():
+            normalized_value = None
+
+        else:
+            try:
+                steam_id = int(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "O SteamID deve ser um número inteiro positivo."
+                ) from exc
+
+            if steam_id <= 0:
+                raise ValueError("O SteamID deve ser um número inteiro positivo.")
+
+            normalized_value = str(steam_id)
+
+    elif field == "ip_country":
+        if value is None or not str(value).strip():
+            normalized_value = None
+
+        else:
+            country = str(value).strip().upper()
+
+            if len(country) != 2 or not country.isalpha():
+                raise ValueError("O código do país deve possuir duas letras, como BR.")
+
+            normalized_value = country
+
+    else:
+        if value is None:
+            normalized_value = None
+        else:
+            normalized_value = str(value).strip() or None
+
+    section, option = location
+
+    config_path = steam_settings_directory / "configs.user.ini"
+
+    _update_ini_option(
+        config_path,
+        section,
+        option,
+        normalized_value,
+    )
+
+    if field == "local_save_path" and normalized_value is not None:
+        _update_ini_option(
+            config_path,
+            "user::saves",
+            "saves_folder_name",
+            None,
+        )
+
+    elif field == "saves_folder_name" and normalized_value is not None:
+        _update_ini_option(
+            config_path,
+            "user::saves",
+            "local_save_path",
+            None,
+        )
+
+    return config_path

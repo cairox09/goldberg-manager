@@ -11,6 +11,7 @@ from goldberg_manager.settings import (
     read_game_steam_settings,
     read_steam_appid,
     read_user_config,
+    update_user_setting,
 )
 
 
@@ -392,6 +393,144 @@ class SteamSettingsTests(unittest.TestCase):
                 snapshot.saves_folder_name,
                 "Custom Saves",
             )
+
+    def test_updates_nick_without_removing_other_options(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            steam_settings = Path(temp_directory) / "steam_settings"
+            steam_settings.mkdir()
+
+            config_path = steam_settings / "configs.user.ini"
+
+            config_path.write_text(
+                "[user::general]\n"
+                "account_name=Davi\n"
+                "language=brazilian\n"
+                "custom_option=keep-me\n"
+                "\n"
+                "[overlay::general]\n"
+                "# keep this comment\n"
+                "enable_overlay=1\n",
+                encoding="utf-8",
+            )
+
+            update_user_setting(
+                steam_settings,
+                "account_name",
+                "cairox09",
+            )
+
+            content = config_path.read_text(encoding="utf-8")
+
+            self.assertIn(
+                "account_name=cairox09",
+                content,
+            )
+            self.assertIn(
+                "language=brazilian",
+                content,
+            )
+            self.assertIn(
+                "custom_option=keep-me",
+                content,
+            )
+            self.assertIn(
+                "[overlay::general]",
+                content,
+            )
+            self.assertIn(
+                "# keep this comment",
+                content,
+            )
+            self.assertIn(
+                "enable_overlay=1",
+                content,
+            )
+
+    def test_removes_existing_steamid(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            steam_settings = Path(temp_directory) / "steam_settings"
+            steam_settings.mkdir()
+
+            config_path = steam_settings / "configs.user.ini"
+
+            config_path.write_text(
+                "[user::general]\n"
+                "account_name=Player\n"
+                "account_steamid=76561198000000000\n",
+                encoding="utf-8",
+            )
+
+            update_user_setting(
+                steam_settings,
+                "account_steamid",
+                None,
+            )
+
+            content = config_path.read_text(encoding="utf-8")
+
+            self.assertIn(
+                "account_name=Player",
+                content,
+            )
+
+            self.assertNotIn(
+                "account_steamid=",
+                content,
+            )
+
+    def test_switches_to_local_save(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            steam_settings = Path(temp_directory) / "steam_settings"
+            steam_settings.mkdir()
+
+            config_path = steam_settings / "configs.user.ini"
+
+            config_path.write_text(
+                "[user::general]\n"
+                "account_name=Player\n"
+                "\n"
+                "[user::saves]\n"
+                "saves_folder_name=Old Saves\n",
+                encoding="utf-8",
+            )
+
+            update_user_setting(
+                steam_settings,
+                "local_save_path",
+                "./saves",
+            )
+
+            content = config_path.read_text(encoding="utf-8")
+
+            self.assertIn(
+                "local_save_path=./saves",
+                content,
+            )
+
+            self.assertNotIn(
+                "saves_folder_name=",
+                content,
+            )
+
+    def test_rejects_invalid_country_update(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            steam_settings = Path(temp_directory) / "steam_settings"
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "duas letras",
+            ):
+                update_user_setting(
+                    steam_settings,
+                    "ip_country",
+                    "BRA",
+                )
+
+            self.assertFalse(steam_settings.exists())
 
 
 if __name__ == "__main__":

@@ -503,3 +503,18 @@ def update_user_setting(
         )
 
     return config_path
+
+
+def update_game_steam_appid(
+    game: Game,
+    app_id: int,
+) -> Path:
+    if app_id <= 0:
+        raise ValueError("O Steam AppID deve ser um número inteiro positivo.")
+
+    steam_settings_directory = game.steam_api.parent / "steam_settings"
+
+    return generate_steam_appid(
+        steam_settings_directory,
+        app_id,
+    )

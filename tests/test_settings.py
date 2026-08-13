@@ -11,6 +11,7 @@ from goldberg_manager.settings import (
     read_game_steam_settings,
     read_steam_appid,
     read_user_config,
+    update_game_steam_appid,
     update_user_setting,
 )
 
@@ -531,6 +532,60 @@ class SteamSettingsTests(unittest.TestCase):
                 )
 
             self.assertFalse(steam_settings.exists())
+
+    def test_updates_existing_game_appid(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+
+            steam_api = root / "steam_api64.dll"
+            steam_api.write_bytes(b"steam api")
+
+            steam_settings = root / "steam_settings"
+            steam_settings.mkdir()
+
+            app_id_path = steam_settings / "steam_appid.txt"
+
+            app_id_path.write_text(
+                "111111\n",
+                encoding="utf-8",
+            )
+
+            interfaces_path = steam_settings / "steam_interfaces.txt"
+
+            interfaces_path.write_text(
+                "SteamClient021\n",
+                encoding="utf-8",
+            )
+
+            game = Game(
+                name="Example Game",
+                root_directory=root,
+                executable=root / "Game.exe",
+                steam_api=steam_api,
+                steam_api_relative_path=Path("steam_api64.dll"),
+                architecture="64-bit",
+                source_directory=root,
+            )
+
+            output = update_game_steam_appid(
+                game,
+                222222,
+            )
+
+            self.assertEqual(
+                output,
+                app_id_path,
+            )
+
+            self.assertEqual(
+                app_id_path.read_text(encoding="utf-8"),
+                "222222\n",
+            )
+
+            self.assertEqual(
+                interfaces_path.read_text(encoding="utf-8"),
+                "SteamClient021\n",
+            )
 
 
 if __name__ == "__main__":

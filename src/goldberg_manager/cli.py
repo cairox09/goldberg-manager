@@ -24,6 +24,7 @@ from .scanner import Game, detect_games, detect_generate_interfaces
 from .settings import (
     SteamUserSettings,
     generate_game_steam_settings,
+    read_game_steam_settings,
 )
 
 APP_NAME = "Goldberg Manager"
@@ -52,7 +53,7 @@ MENU_ITEMS = [
     ("1", "Detectar jogos"),
     ("2", "Instalar Goldberg em um jogo [em desenvolvimento]"),
     ("3", "Gerar steam_interfaces"),
-    ("4", "Gerar steam_settings"),
+    ("4", "Gerenciar steam_settings"),
     ("5", "Backup do jogo"),
     ("6", "Restaurar backup"),
     ("7", "Abrir pasta do jogo"),
@@ -589,6 +590,166 @@ def generate_steam_interfaces_menu(config: AppConfig) -> None:
     pause()
 
 
+def show_current_steam_settings_menu(
+    config: AppConfig,
+) -> None:
+    clear_screen()
+    render_header()
+
+    games = get_detected_games(config)
+
+    if games is None:
+        return
+
+    game = select_game(
+        games,
+        "Selecione o jogo para visualizar steam_settings:",
+    )
+
+    if game is None:
+        return
+
+    try:
+        snapshot = read_game_steam_settings(game)
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Erro ao ler steam_settings:[/red] {exc}")
+        pause()
+        return
+
+    steam_settings_directory = game.steam_api.parent / "steam_settings"
+
+    app_id_file = steam_settings_directory / "steam_appid.txt"
+
+    user_config_file = steam_settings_directory / "configs.user.ini"
+
+    interfaces_file = steam_settings_directory / "steam_interfaces.txt"
+
+    if (
+        not app_id_file.is_file()
+        and not user_config_file.is_file()
+        and not interfaces_file.is_file()
+    ):
+        console.print(
+            Panel.fit(
+                "[yellow]Nenhuma configuração "
+                "steam_settings foi encontrada "
+                "para este jogo.[/yellow]",
+                border_style="yellow",
+                box=box.ROUNDED,
+            )
+        )
+        pause()
+        return
+
+    table = Table.grid(padding=(0, 2))
+    table.add_column(
+        style="bold cyan",
+        no_wrap=True,
+    )
+    table.add_column(style="white")
+
+    table.add_row(
+        "Jogo",
+        game.name,
+    )
+
+    table.add_row(
+        "AppID",
+        str(snapshot.app_id) if snapshot.app_id is not None else "(não definido)",
+    )
+
+    table.add_row(
+        "Nick",
+        snapshot.account_name or "(não definido)",
+    )
+
+    table.add_row(
+        "SteamID64",
+        str(snapshot.account_steamid)
+        if snapshot.account_steamid is not None
+        else "(não definido / automático)",
+    )
+
+    table.add_row(
+        "Idioma",
+        snapshot.language or "(não definido)",
+    )
+
+    table.add_row(
+        "País",
+        snapshot.ip_country or "(não definido)",
+    )
+
+    if snapshot.local_save_path:
+        save_status = f"Local/portátil: {snapshot.local_save_path}"
+
+    elif snapshot.saves_folder_name:
+        save_status = f"Pasta global: {snapshot.saves_folder_name}"
+
+    else:
+        save_status = "Padrão / não definido"
+
+    table.add_row(
+        "Saves",
+        save_status,
+    )
+
+    table.add_row(
+        "steam_appid.txt",
+        "Presente" if app_id_file.is_file() else "Ausente",
+    )
+
+    table.add_row(
+        "configs.user.ini",
+        "Presente" if user_config_file.is_file() else "Ausente",
+    )
+
+    table.add_row(
+        "steam_interfaces.txt",
+        "Presente" if snapshot.has_steam_interfaces else "Ausente",
+    )
+
+    console.print(
+        Panel(
+            table,
+            title="Configuração atual",
+            border_style="green",
+            box=box.ROUNDED,
+        )
+    )
+
+    console.print()
+    console.print(f"[dim]{steam_settings_directory}[/dim]")
+
+    pause()
+
+
+def manage_steam_settings_menu(
+    config: AppConfig,
+) -> None:
+    while True:
+        clear_screen()
+        render_header()
+
+        choice = questionary.select(
+            "Gerenciar steam_settings:",
+            choices=[
+                "Ver configuração atual",
+                "Criar / substituir configuração",
+                "Voltar",
+            ],
+        ).ask()
+
+        if choice is None or choice == "Voltar":
+            return
+
+        if choice == "Ver configuração atual":
+            show_current_steam_settings_menu(config)
+
+        elif choice == "Criar / substituir configuração":
+            generate_steam_settings_menu(config)
+
+
 def generate_steam_settings_menu(config: AppConfig) -> None:
     clear_screen()
     render_header()
@@ -925,7 +1086,7 @@ def start() -> int:
             generate_steam_interfaces_menu(config)
 
         elif choice == "4":
-            generate_steam_settings_menu(config)
+            manage_steam_settings_menu(config)
 
         elif choice == "5":
             backup_game_menu(config)

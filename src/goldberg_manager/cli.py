@@ -28,6 +28,12 @@ from .settings import (
     update_game_steam_appid,
     update_user_setting,
 )
+from .settings_backup import (
+    create_steam_settings_backup,
+    get_steam_settings_directory,
+    list_steam_settings_backups,
+    restore_steam_settings_backup,
+)
 
 APP_NAME = "Goldberg Manager"
 APP_VERSION = "0.1.0"
@@ -726,6 +732,39 @@ def show_current_steam_settings_menu(
     pause()
 
 
+def create_settings_safety_backup(
+    game: Game,
+) -> Path | None:
+    steam_settings_directory = get_steam_settings_directory(game)
+
+    if not steam_settings_directory.is_dir():
+        return None
+
+    if not any(path.is_file() for path in steam_settings_directory.rglob("*")):
+        return None
+
+    try:
+        return create_steam_settings_backup(game)
+
+    except (
+        FileNotFoundError,
+        OSError,
+        ValueError,
+    ) as exc:
+        console.print(
+            f"[red]Não foi possível criar um backup de segurança:[/red] {exc}"
+        )
+
+        console.print(
+            "[yellow]A alteração foi cancelada "
+            "para proteger sua configuração atual.[/yellow]"
+        )
+
+        pause()
+
+        raise
+
+
 def edit_steam_settings_menu(
     config: AppConfig,
 ) -> None:
@@ -1013,6 +1052,301 @@ def edit_steam_settings_menu(
             pause()
 
 
+def create_steam_settings_backup_menu(
+    config: AppConfig,
+) -> None:
+    clear_screen()
+    render_header()
+
+    games = get_detected_games(config)
+
+    if games is None:
+        return
+
+    game = select_game(
+        games,
+        "Selecione o jogo para criar o backup de steam_settings:",
+    )
+
+    if game is None:
+        return
+
+    try:
+        snapshot_path = create_steam_settings_backup(game)
+    except (
+        FileNotFoundError,
+        OSError,
+        ValueError,
+    ) as exc:
+        console.print(f"[red]Não foi possível criar o backup:[/red] {exc}")
+        pause()
+        return
+
+    console.print("[green]Backup de steam_settings criado com sucesso![/green]")
+    console.print(f"[dim]{snapshot_path}[/dim]")
+
+    pause()
+
+
+def list_steam_settings_backups_menu(
+    config: AppConfig,
+) -> None:
+    clear_screen()
+    render_header()
+
+    games = get_detected_games(config)
+
+    if games is None:
+        return
+
+    game = select_game(
+        games,
+        "Selecione o jogo para listar os backups:",
+    )
+
+    if game is None:
+        return
+
+    try:
+        backups = list_steam_settings_backups(game)
+    except OSError as exc:
+        console.print(f"[red]Não foi possível listar os backups:[/red] {exc}")
+        pause()
+        return
+
+    if not backups:
+        console.print(
+            "[yellow]Nenhum backup de steam_settings "
+            "foi encontrado para este jogo.[/yellow]"
+        )
+        pause()
+        return
+
+    table = Table(
+        title=f"Backups de {game.name}",
+        box=box.ROUNDED,
+        border_style="green",
+    )
+
+    table.add_column(
+        "#",
+        justify="right",
+        style="bold cyan",
+    )
+    table.add_column("Data")
+    table.add_column(
+        "Arquivos",
+        justify="right",
+    )
+    table.add_column("Integridade")
+
+    for index, backup in enumerate(
+        backups,
+        start=1,
+    ):
+        created_at = backup.created_at.astimezone()
+
+        table.add_row(
+            str(index),
+            created_at.strftime("%d/%m/%Y %H:%M:%S"),
+            str(backup.file_count),
+            ("[green]Íntegro[/green]" if backup.valid else "[red]CORROMPIDO[/red]"),
+        )
+
+    console.print(table)
+
+    console.print()
+    console.print(f"[dim]Diretório: {backups[0].path.parent}[/dim]")
+
+    pause()
+
+
+def restore_steam_settings_backup_menu(
+    config: AppConfig,
+) -> None:
+    clear_screen()
+    render_header()
+
+    games = get_detected_games(config)
+
+    if games is None:
+        return
+
+    game = select_game(
+        games,
+        "Selecione o jogo cujo backup deseja restaurar:",
+    )
+
+    if game is None:
+        return
+
+    try:
+        backups = list_steam_settings_backups(game)
+    except OSError as exc:
+        console.print(f"[red]Não foi possível listar os backups:[/red] {exc}")
+        pause()
+        return
+
+    if not backups:
+        console.print(
+            "[yellow]Nenhum backup de steam_settings "
+            "foi encontrado para este jogo.[/yellow]"
+        )
+        pause()
+        return
+
+    choices: list[str] = []
+
+    for index, backup in enumerate(
+        backups,
+        start=1,
+    ):
+        created_at = backup.created_at.astimezone()
+
+        integrity = "íntegro" if backup.valid else "CORROMPIDO"
+
+        choices.append(
+            f"{index} - "
+            f"{created_at.strftime('%d/%m/%Y %H:%M:%S')} "
+            f"• {backup.file_count} arquivos "
+            f"• {integrity}"
+        )
+
+    choices.append("Voltar")
+
+    selected = questionary.select(
+        "Selecione o backup:",
+        choices=choices,
+    ).ask()
+
+    if selected is None or selected == "Voltar":
+        return
+
+    index = int(selected.split(" - ", 1)[0]) - 1
+
+    backup = backups[index]
+
+    if not backup.valid:
+        console.print(
+            "[red]Este backup está corrompido e não pode ser restaurado.[/red]"
+        )
+        pause()
+        return
+
+    console.print()
+
+    table = Table.grid(padding=(0, 2))
+    table.add_column(style="bold cyan")
+    table.add_column()
+
+    table.add_row(
+        "Jogo",
+        game.name,
+    )
+    table.add_row(
+        "Backup",
+        backup.created_at.astimezone().strftime("%d/%m/%Y %H:%M:%S"),
+    )
+    table.add_row(
+        "Arquivos",
+        str(backup.file_count),
+    )
+    table.add_row(
+        "Integridade",
+        "Íntegro",
+    )
+
+    console.print(
+        Panel(
+            table,
+            title="Restaurar backup",
+            border_style="yellow",
+            box=box.ROUNDED,
+        )
+    )
+
+    confirm = questionary.confirm(
+        "Restaurar este snapshot? A configuração atual será substituída.",
+        default=False,
+    ).ask()
+
+    if not confirm:
+        return
+
+    current_settings = get_steam_settings_directory(game)
+
+    if current_settings.is_dir():
+        try:
+            safety_backup = create_steam_settings_backup(game)
+        except (
+            FileNotFoundError,
+            OSError,
+            ValueError,
+        ) as exc:
+            console.print(
+                "[red]Não foi possível criar o "
+                "backup de segurança antes da restauração:[/red] "
+                f"{exc}"
+            )
+            console.print("[yellow]A restauração foi cancelada.[/yellow]")
+            pause()
+            return
+
+        console.print(
+            "[green]✓ Backup de segurança da configuração atual criado.[/green]"
+        )
+        console.print(f"[dim]{safety_backup}[/dim]")
+
+    try:
+        restored_path = restore_steam_settings_backup(
+            game,
+            backup.path,
+        )
+    except (
+        OSError,
+        ValueError,
+    ) as exc:
+        console.print(f"[red]Falha ao restaurar o backup:[/red] {exc}")
+        pause()
+        return
+
+    console.print()
+    console.print("[green]steam_settings restaurado com sucesso![/green]")
+    console.print(f"[dim]{restored_path}[/dim]")
+
+    pause()
+
+
+def manage_steam_settings_backups_menu(
+    config: AppConfig,
+) -> None:
+    while True:
+        clear_screen()
+        render_header()
+
+        choice = questionary.select(
+            "Backups de steam_settings:",
+            choices=[
+                "Criar backup agora",
+                "Ver backups",
+                "Restaurar backup",
+                "Voltar",
+            ],
+        ).ask()
+
+        if choice is None or choice == "Voltar":
+            return
+
+        if choice == "Criar backup agora":
+            create_steam_settings_backup_menu(config)
+
+        elif choice == "Ver backups":
+            list_steam_settings_backups_menu(config)
+
+        elif choice == "Restaurar backup":
+            restore_steam_settings_backup_menu(config)
+
+
 def manage_steam_settings_menu(
     config: AppConfig,
 ) -> None:
@@ -1026,6 +1360,7 @@ def manage_steam_settings_menu(
                 "Ver configuração atual",
                 "Editar configuração",
                 "Criar / substituir configuração",
+                "Backups de configuração",
                 "Voltar",
             ],
         ).ask()
@@ -1041,6 +1376,9 @@ def manage_steam_settings_menu(
 
         elif choice == "Criar / substituir configuração":
             generate_steam_settings_menu(config)
+
+        elif choice == "Backups de configuração":
+            manage_steam_settings_backups_menu(config)
 
 
 def generate_steam_settings_menu(config: AppConfig) -> None:

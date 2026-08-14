@@ -370,6 +370,25 @@ def select_game(
     return games[index]
 
 
+def get_menu_game(
+    config: AppConfig,
+    game: Game | None,
+    message: str,
+) -> Game | None:
+    if game is not None:
+        return game
+
+    games = get_detected_games(config)
+
+    if games is None:
+        return None
+
+    return select_game(
+        games,
+        message,
+    )
+
+
 def show_games(config: AppConfig) -> None:
     clear_screen()
     render_header()
@@ -548,17 +567,16 @@ def show_settings(config: AppConfig) -> None:
             return
 
 
-def generate_steam_interfaces_menu(config: AppConfig) -> None:
+def generate_steam_interfaces_menu(
+    config: AppConfig,
+    game: Game | None = None,
+) -> None:
     clear_screen()
     render_header()
 
-    games = get_detected_games(config)
-
-    if games is None:
-        return
-
-    game = select_game(
-        games,
+    game = get_menu_game(
+        config,
+        game,
         "Selecione o jogo para gerar steam_interfaces:",
     )
 
@@ -610,17 +628,14 @@ def generate_steam_interfaces_menu(config: AppConfig) -> None:
 
 def show_current_steam_settings_menu(
     config: AppConfig,
+    game: Game | None = None,
 ) -> None:
     clear_screen()
     render_header()
 
-    games = get_detected_games(config)
-
-    if games is None:
-        return
-
-    game = select_game(
-        games,
+    game = get_menu_game(
+        config,
+        game,
         "Selecione o jogo para visualizar steam_settings:",
     )
 
@@ -779,17 +794,14 @@ def create_settings_safety_backup(
 
 def edit_steam_settings_menu(
     config: AppConfig,
+    game: Game | None = None,
 ) -> None:
     clear_screen()
     render_header()
 
-    games = get_detected_games(config)
-
-    if games is None:
-        return
-
-    game = select_game(
-        games,
+    game = get_menu_game(
+        config,
+        game,
         "Selecione o jogo cuja configuração deseja editar:",
     )
 
@@ -1090,17 +1102,14 @@ def edit_steam_settings_menu(
 
 def create_steam_settings_backup_menu(
     config: AppConfig,
+    game: Game | None = None,
 ) -> None:
     clear_screen()
     render_header()
 
-    games = get_detected_games(config)
-
-    if games is None:
-        return
-
-    game = select_game(
-        games,
+    game = get_menu_game(
+        config,
+        game,
         "Selecione o jogo para criar o backup de steam_settings:",
     )
 
@@ -1126,17 +1135,14 @@ def create_steam_settings_backup_menu(
 
 def list_steam_settings_backups_menu(
     config: AppConfig,
+    game: Game | None = None,
 ) -> None:
     clear_screen()
     render_header()
 
-    games = get_detected_games(config)
-
-    if games is None:
-        return
-
-    game = select_game(
-        games,
+    game = get_menu_game(
+        config,
+        game,
         "Selecione o jogo para listar os backups:",
     )
 
@@ -1199,17 +1205,14 @@ def list_steam_settings_backups_menu(
 
 def restore_steam_settings_backup_menu(
     config: AppConfig,
+    game: Game | None = None,
 ) -> None:
     clear_screen()
     render_header()
 
-    games = get_detected_games(config)
-
-    if games is None:
-        return
-
-    game = select_game(
-        games,
+    game = get_menu_game(
+        config,
+        game,
         "Selecione o jogo cujo backup deseja restaurar:",
     )
 
@@ -1355,6 +1358,7 @@ def restore_steam_settings_backup_menu(
 
 def manage_steam_settings_backups_menu(
     config: AppConfig,
+    game: Game | None = None,
 ) -> None:
     while True:
         clear_screen()
@@ -1374,17 +1378,27 @@ def manage_steam_settings_backups_menu(
             return
 
         if choice == "Criar backup agora":
-            create_steam_settings_backup_menu(config)
+            create_steam_settings_backup_menu(
+                config,
+                game=game,
+            )
 
         elif choice == "Ver backups":
-            list_steam_settings_backups_menu(config)
+            list_steam_settings_backups_menu(
+                config,
+                game=game,
+            )
 
         elif choice == "Restaurar backup":
-            restore_steam_settings_backup_menu(config)
+            restore_steam_settings_backup_menu(
+                config,
+                game=game,
+            )
 
 
 def manage_steam_settings_menu(
     config: AppConfig,
+    game: Game | None = None,
 ) -> None:
     while True:
         clear_screen()
@@ -1405,16 +1419,28 @@ def manage_steam_settings_menu(
             return
 
         if choice == "Ver configuração atual":
-            show_current_steam_settings_menu(config)
+            show_current_steam_settings_menu(
+                config,
+                game=game,
+            )
 
         elif choice == "Editar configuração":
-            edit_steam_settings_menu(config)
+            edit_steam_settings_menu(
+                config,
+                game=game,
+            )
 
         elif choice == "Criar / substituir configuração":
-            generate_steam_settings_menu(config)
+            generate_steam_settings_menu(
+                config,
+                game=game,
+            )
 
         elif choice == "Backups de configuração":
-            manage_steam_settings_backups_menu(config)
+            manage_steam_settings_backups_menu(
+                config,
+                game=game,
+            )
 
 
 def search_appid_on_steam_menu(
@@ -1754,17 +1780,16 @@ def resolve_game_appid_menu(
     pause()
 
 
-def generate_steam_settings_menu(config: AppConfig) -> None:
+def generate_steam_settings_menu(
+    config: AppConfig,
+    game: Game | None = None,
+) -> None:
     clear_screen()
     render_header()
 
-    games = get_detected_games(config)
-
-    if games is None:
-        return
-
-    game = select_game(
-        games,
+    game = get_menu_game(
+        config,
+        game,
         "Selecione o jogo para configurar steam_settings:",
     )
 
@@ -2192,10 +2217,16 @@ def goldberg_game_assistant_menu(
             resolve_game_appid_menu(game)
 
         elif choice == "Gerenciar steam_settings":
-            manage_steam_settings_menu(config)
+            manage_steam_settings_menu(
+                config,
+                game=game,
+            )
 
         elif choice == "Gerar steam_interfaces":
-            generate_steam_interfaces_menu(config)
+            generate_steam_interfaces_menu(
+                config,
+                game=game,
+            )
 
         elif choice == "Fazer backup da Steam API":
             create_game_backup(game)

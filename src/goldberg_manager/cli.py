@@ -734,35 +734,37 @@ def show_current_steam_settings_menu(
 
 def create_settings_safety_backup(
     game: Game,
-) -> Path | None:
+) -> bool:
     steam_settings_directory = get_steam_settings_directory(game)
 
     if not steam_settings_directory.is_dir():
-        return None
+        return True
 
     if not any(path.is_file() for path in steam_settings_directory.rglob("*")):
-        return None
+        return True
 
     try:
-        return create_steam_settings_backup(game)
+        snapshot_path = create_steam_settings_backup(game)
 
     except (
         FileNotFoundError,
         OSError,
         ValueError,
     ) as exc:
-        console.print(
-            f"[red]Não foi possível criar um backup de segurança:[/red] {exc}"
-        )
+        console.print(f"[red]Não foi possível criar o backup de segurança:[/red] {exc}")
 
         console.print(
             "[yellow]A alteração foi cancelada "
-            "para proteger sua configuração atual.[/yellow]"
+            "para proteger a configuração atual.[/yellow]"
         )
 
         pause()
+        return False
 
-        raise
+    console.print("[dim]Backup de segurança criado:[/dim]")
+    console.print(f"[dim]{snapshot_path}[/dim]")
+
+    return True
 
 
 def edit_steam_settings_menu(
@@ -866,6 +868,9 @@ def edit_steam_settings_menu(
                     pause()
                     continue
 
+                if not create_settings_safety_backup(game):
+                    continue
+
                 update_game_steam_appid(
                     game,
                     app_id,
@@ -881,6 +886,9 @@ def edit_steam_settings_menu(
                 ).ask()
 
                 if answer is None:
+                    continue
+
+                if not create_settings_safety_backup(game):
                     continue
 
                 update_user_setting(
@@ -907,6 +915,9 @@ def edit_steam_settings_menu(
 
                 value = answer.strip() or None
 
+                if not create_settings_safety_backup(game):
+                    continue
+
                 update_user_setting(
                     steam_settings_directory,
                     "account_steamid",
@@ -932,6 +943,9 @@ def edit_steam_settings_menu(
                 if answer is None:
                     continue
 
+                if not create_settings_safety_backup(game):
+                    continue
+
                 update_user_setting(
                     steam_settings_directory,
                     "language",
@@ -948,6 +962,9 @@ def edit_steam_settings_menu(
                 ).ask()
 
                 if answer is None:
+                    continue
+
+                if not create_settings_safety_backup(game):
                     continue
 
                 update_user_setting(
@@ -991,6 +1008,9 @@ def edit_steam_settings_menu(
                         pause()
                         continue
 
+                    if not create_settings_safety_backup(game):
+                        continue
+
                     update_user_setting(
                         steam_settings_directory,
                         "local_save_path",
@@ -1018,6 +1038,9 @@ def edit_steam_settings_menu(
                         pause()
                         continue
 
+                    if not create_settings_safety_backup(game):
+                        continue
+
                     update_user_setting(
                         steam_settings_directory,
                         "saves_folder_name",
@@ -1028,6 +1051,9 @@ def edit_steam_settings_menu(
                     pause()
 
                 elif save_choice == "Usar padrão do GBE":
+                    if not create_settings_safety_backup(game):
+                        continue
+
                     update_user_setting(
                         steam_settings_directory,
                         "local_save_path",
@@ -1601,6 +1627,9 @@ def generate_steam_settings_menu(config: AppConfig) -> None:
     ).ask()
 
     if not confirm:
+        return
+
+    if not create_settings_safety_backup(game):
         return
 
     try:

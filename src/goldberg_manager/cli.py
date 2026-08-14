@@ -16,6 +16,10 @@ from .appid import (
     resolve_local_appid,
     search_game_on_steam,
 )
+from .appid_cache import (
+    get_cached_appid_search,
+    save_appid_search_cache,
+)
 from .backup import (
     backup_game,
     current_file_matches_backup,
@@ -1434,18 +1438,39 @@ def search_appid_on_steam_menu(
         return None
 
     console.print()
-    console.print(f"[dim]Pesquisando por: {query}[/dim]")
 
     try:
-        candidates = search_game_on_steam(
-            game,
-            query=query,
-        )
+        candidates = get_cached_appid_search(query)
+    except OSError:
+        candidates = None
 
-    except SteamStoreSearchError as exc:
-        console.print(f"[red]Falha na pesquisa:[/red] {exc}")
-        pause()
-        return None
+    if candidates is not None:
+        console.print("[green]✓ Resultados carregados do cache local.[/green]")
+
+    else:
+        console.print(f"[dim]Pesquisando na Steam por: {query}[/dim]")
+
+        try:
+            candidates = search_game_on_steam(
+                game,
+                query=query,
+            )
+
+        except SteamStoreSearchError as exc:
+            console.print(f"[red]Falha na pesquisa:[/red] {exc}")
+            pause()
+            return None
+
+        try:
+            save_appid_search_cache(
+                query,
+                candidates,
+            )
+
+        except OSError as exc:
+            console.print(
+                f"[yellow]Não foi possível salvar o cache da pesquisa:[/yellow] {exc}"
+            )
 
     if not candidates:
         console.print("[yellow]Nenhum resultado encontrado na Steam Store.[/yellow]")

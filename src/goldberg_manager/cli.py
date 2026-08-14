@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 from rich import box
@@ -47,6 +48,28 @@ from .settings_backup import (
 
 APP_NAME = "Goldberg Manager"
 APP_VERSION = "0.1.0"
+
+
+@dataclass(slots=True)
+class GameAssistantStatus:
+    app_id: int | None
+    app_id_confidence: int | None
+    backup_exists: bool
+    backup_valid: bool
+    steam_settings_exists: bool
+    steam_interfaces_exists: bool
+    gbe_configured: bool
+
+    @property
+    def ready(self) -> bool:
+        return (
+            self.app_id is not None
+            and self.backup_exists
+            and self.backup_valid
+            and self.steam_settings_exists
+            and self.steam_interfaces_exists
+            and self.gbe_configured
+        )
 
 
 class MissingDependencyError(RuntimeError):
@@ -461,11 +484,20 @@ def show_settings(config: AppConfig) -> None:
     while True:
         clear_screen()
         render_header()
+
         table = Table.grid(padding=(0, 2))
-        table.add_column(style="bold cyan", no_wrap=True)
+
+        table.add_column(
+            style="bold cyan",
+            no_wrap=True,
+        )
+
         table.add_column(style="white")
 
-        table.add_row("Tema", config.ui.theme)
+        table.add_row(
+            "Tema",
+            config.ui.theme,
+        )
         table.add_row("Goldberg root", str(config.goldberg.root))
         table.add_row(
             "Interfaces generator x64", str(config.goldberg.interfaces_generator_x64)
@@ -2080,6 +2112,53 @@ def open_game_directory_menu(config: AppConfig) -> None:
         pause()
 
 
+def get_game_assistant_status(
+    config: AppConfig,
+    game: Game,
+) -> GameAssistantStatus:
+    steam_settings_directory = game.steam_api.parent / "steam_settings"
+
+    steam_interfaces = steam_settings_directory / "steam_interfaces.txt"
+
+    try:
+        snapshot = read_game_steam_settings(game)
+    except (OSError, ValueError):
+        snapshot = None
+
+    app_id: int | None = None
+    app_id_confidence: int | None = None
+
+    if snapshot is not None and snapshot.app_id is not None:
+        app_id = snapshot.app_id
+        app_id_confidence = 100
+
+    else:
+        try:
+            candidates = resolve_local_appid(game)
+        except OSError:
+            candidates = []
+
+        if candidates:
+            best = candidates[0]
+
+            app_id = best.app_id
+            app_id_confidence = best.score
+
+    backup_exists = has_backup(game)
+
+    backup_valid = backup_exists and verify_backup(game)
+
+    return GameAssistantStatus(
+        app_id=app_id,
+        app_id_confidence=app_id_confidence,
+        backup_exists=backup_exists,
+        backup_valid=backup_valid,
+        steam_settings_exists=(steam_settings_directory.is_dir()),
+        steam_interfaces_exists=(steam_interfaces.is_file()),
+        gbe_configured=(config.goldberg.root is not None),
+    )
+
+
 def goldberg_game_assistant_menu(
     config: AppConfig,
 ) -> None:
@@ -2103,19 +2182,10 @@ def goldberg_game_assistant_menu(
         clear_screen()
         render_header()
 
-        try:
-            snapshot = read_game_steam_settings(game)
-        except (OSError, ValueError):
-            snapshot = None
-
-        try:
-            appid_candidates = resolve_local_appid(game)
-        except OSError:
-            appid_candidates = []
-
-        steam_settings_directory = game.steam_api.parent / "steam_settings"
-
-        steam_interfaces = steam_settings_directory / "steam_interfaces.txt"
+        status = get_game_assistant_status(
+            config,
+            game,
+        )
 
         table = Table.grid(padding=(0, 2))
 
@@ -2123,7 +2193,23 @@ def goldberg_game_assistant_menu(
             style="bold cyan",
             no_wrap=True,
         )
+
         table.add_column(style="white")
+
+        if status.ready:
+            general_status = "[bold green]✓ PRONTO[/bold green]"
+        else:
+            general_status = "[bold yellow]⚠ INCOMPLETO[/bold yellow]"
+
+        table.add_row(
+            "Status geral",
+            general_status,
+        )
+
+        table.add_row(
+            "",
+            "",
+        )
 
         table.add_row(
             "Jogo",
@@ -2135,30 +2221,37 @@ def goldberg_game_assistant_menu(
             game.architecture,
         )
 
-        if snapshot is not None and snapshot.app_id is not None:
-            app_id_status = f"[green]{snapshot.app_id}[/green]"
+        if status.app_id is not None:
+            if status.app_id_confidence == 100:
+                app_id_status = f"[green]✓ {status.app_id}[/green]"
 
-        elif appid_candidates:
-            best = appid_candidates[0]
+            else:
+                confidence = (
+                    status.app_id_confidence
+                    if status.app_id_confidence is not None
+                    else 0
+                )
 
-            app_id_status = f"[yellow]{best.app_id} ({best.score}% provável)[/yellow]"
+                app_id_status = (
+                    f"[yellow]⚠ {status.app_id} ({confidence}% provável)[/yellow]"
+                )
 
         else:
-            app_id_status = "[red]Não identificado[/red]"
+            app_id_status = "[red]✗ Não identificado[/red]"
 
         table.add_row(
             "Steam AppID",
             app_id_status,
         )
 
-        if not has_backup(game):
-            backup_status = "[yellow]Ausente[/yellow]"
+        if not status.backup_exists:
+            backup_status = "[yellow]⚠ Ausente[/yellow]"
 
-        elif verify_backup(game):
-            backup_status = "[green]Íntegro[/green]"
+        elif status.backup_valid:
+            backup_status = "[green]✓ Íntegro[/green]"
 
         else:
-            backup_status = "[red]CORROMPIDO[/red]"
+            backup_status = "[red]✗ CORROMPIDO[/red]"
 
         table.add_row(
             "Backup Steam API",
@@ -2168,31 +2261,35 @@ def goldberg_game_assistant_menu(
         table.add_row(
             "steam_settings",
             (
-                "[green]Presente[/green]"
-                if steam_settings_directory.is_dir()
-                else "[yellow]Ausente[/yellow]"
+                "[green]✓ Presente[/green]"
+                if status.steam_settings_exists
+                else "[yellow]⚠ Ausente[/yellow]"
             ),
         )
 
         table.add_row(
             "steam_interfaces",
             (
-                "[green]Presente[/green]"
-                if steam_interfaces.is_file()
-                else "[yellow]Ausente[/yellow]"
+                "[green]✓ Presente[/green]"
+                if status.steam_interfaces_exists
+                else "[yellow]⚠ Ausente[/yellow]"
             ),
         )
 
         table.add_row(
             "GBE configurado",
-            ("[green]Sim[/green]" if config.goldberg.root else "[yellow]Não[/yellow]"),
+            (
+                "[green]✓ Sim[/green]"
+                if status.gbe_configured
+                else "[yellow]⚠ Não[/yellow]"
+            ),
         )
 
         console.print(
             Panel(
                 table,
                 title="Assistente Goldberg / GBE",
-                border_style="cyan",
+                border_style=("green" if status.ready else "yellow"),
                 box=box.ROUNDED,
             )
         )

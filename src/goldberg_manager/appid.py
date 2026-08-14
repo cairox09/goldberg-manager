@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
 from difflib import SequenceMatcher
+from html.parser import HTMLParser
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 from .scanner import Game
 
@@ -396,4 +401,210 @@ def resolve_local_appid(
             candidate.name.casefold(),
         ),
         reverse=True,
+    )
+
+
+class SteamStoreSearchError(RuntimeError):
+    pass
+
+
+class _SteamStoreSearchParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+
+        self.results: list[tuple[int, str]] = []
+
+        self._current_app_id: int | None = None
+        self._inside_title = False
+        self._title_parts: list[str] = []
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        attributes = dict(attrs)
+
+        if tag == "a" and self._current_app_id is None:
+            href = attributes.get("href")
+
+            if href:
+                match = re.search(
+                    r"/app/(\d+)(?:/|$)",
+                    href,
+                )
+
+                if match is not None:
+                    self._current_app_id = int(match.group(1))
+
+                    self._title_parts = []
+
+        elif tag == "span" and self._current_app_id is not None:
+            class_value = attributes.get("class") or ""
+
+            classes = class_value.split()
+
+            if "title" in classes:
+                self._inside_title = True
+
+    def handle_data(
+        self,
+        data: str,
+    ) -> None:
+        if self._inside_title:
+            self._title_parts.append(data)
+
+    def handle_endtag(
+        self,
+        tag: str,
+    ) -> None:
+        if tag == "span" and self._inside_title:
+            self._inside_title = False
+
+        elif tag == "a" and self._current_app_id is not None:
+            title = " ".join(
+                part.strip() for part in self._title_parts if part.strip()
+            ).strip()
+
+            if title:
+                self.results.append(
+                    (
+                        self._current_app_id,
+                        title,
+                    )
+                )
+
+            self._current_app_id = None
+            self._inside_title = False
+            self._title_parts = []
+
+
+def _download_steam_store_search(
+    url: str,
+) -> str:
+    request = Request(
+        url,
+        headers={
+            "User-Agent": ("GoldbergManager/0.1 (Steam AppID search)"),
+            "Accept-Language": "en-US,en;q=0.8",
+        },
+    )
+
+    try:
+        with urlopen(
+            request,
+            timeout=10,
+        ) as response:
+            return response.read().decode(
+                "utf-8",
+                errors="replace",
+            )
+
+    except (
+        HTTPError,
+        URLError,
+        TimeoutError,
+        OSError,
+    ) as exc:
+        raise SteamStoreSearchError(
+            "Não foi possível consultar a Steam Store."
+        ) from exc
+
+
+def search_steam_store(
+    query: str,
+    *,
+    limit: int = 10,
+    fetcher: Callable[[str], str] | None = None,
+) -> list[AppIdCandidate]:
+    query = query.strip()
+
+    if not query:
+        return []
+
+    if limit <= 0:
+        return []
+
+    parameters = urlencode(
+        {
+            "term": query,
+            "l": "english",
+        }
+    )
+
+    url = f"https://store.steampowered.com/search/?{parameters}"
+
+    if fetcher is None:
+        fetcher = _download_steam_store_search
+
+    content = fetcher(url)
+
+    parser = _SteamStoreSearchParser()
+    parser.feed(content)
+
+    candidates: list[AppIdCandidate] = []
+
+    seen_app_ids: set[int] = set()
+
+    for app_id, name in parser.results:
+        if app_id in seen_app_ids:
+            continue
+
+        seen_app_ids.add(app_id)
+
+        score = _similarity(
+            query,
+            name,
+        )
+
+        candidates.append(
+            AppIdCandidate(
+                app_id=app_id,
+                name=name,
+                score=score,
+                source="steam_store",
+            )
+        )
+
+    candidates.sort(
+        key=lambda candidate: (
+            candidate.score,
+            candidate.name.casefold(),
+        ),
+        reverse=True,
+    )
+
+    return candidates[:limit]
+
+
+def get_game_search_query(
+    game: Game,
+) -> str:
+    candidates = [
+        normalize_game_name(game.name),
+        normalize_game_name(game.root_directory.name),
+        normalize_game_name(game.executable.stem),
+    ]
+
+    return max(
+        (candidate for candidate in candidates if candidate),
+        key=len,
+        default="",
+    )
+
+
+def search_game_on_steam(
+    game: Game,
+    *,
+    query: str | None = None,
+    limit: int = 10,
+    fetcher: Callable[[str], str] | None = None,
+) -> list[AppIdCandidate]:
+    if query is None:
+        query = get_game_search_query(game)
+
+    return search_steam_store(
+        query,
+        limit=limit,
+        fetcher=fetcher,
     )

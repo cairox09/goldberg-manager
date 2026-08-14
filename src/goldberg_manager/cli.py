@@ -10,7 +10,12 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from .appid import resolve_local_appid
+from .appid import (
+    SteamStoreSearchError,
+    get_game_search_query,
+    resolve_local_appid,
+    search_game_on_steam,
+)
 from .backup import (
     backup_game,
     current_file_matches_backup,
@@ -1408,6 +1413,135 @@ def manage_steam_settings_menu(
             manage_steam_settings_backups_menu(config)
 
 
+def search_appid_on_steam_menu(
+    game: Game,
+) -> int | None:
+    default_query = get_game_search_query(game)
+
+    answer = questionary.text(
+        "Pesquisar jogo na Steam:",
+        default=default_query,
+    ).ask()
+
+    if answer is None:
+        return None
+
+    query = answer.strip()
+
+    if not query:
+        console.print("[yellow]Nenhum nome informado.[/yellow]")
+        pause()
+        return None
+
+    console.print()
+    console.print(f"[dim]Pesquisando por: {query}[/dim]")
+
+    try:
+        candidates = search_game_on_steam(
+            game,
+            query=query,
+        )
+
+    except SteamStoreSearchError as exc:
+        console.print(f"[red]Falha na pesquisa:[/red] {exc}")
+        pause()
+        return None
+
+    if not candidates:
+        console.print("[yellow]Nenhum resultado encontrado na Steam Store.[/yellow]")
+        pause()
+        return None
+
+    table = Table(
+        title="Resultados da Steam Store",
+        box=box.ROUNDED,
+        border_style="cyan",
+    )
+
+    table.add_column(
+        "#",
+        justify="right",
+        style="bold cyan",
+    )
+    table.add_column("Jogo")
+    table.add_column("AppID")
+    table.add_column("Similaridade")
+
+    for index, candidate in enumerate(
+        candidates,
+        start=1,
+    ):
+        table.add_row(
+            str(index),
+            candidate.name,
+            str(candidate.app_id),
+            f"{candidate.score}%",
+        )
+
+    console.print(table)
+
+    choices = [
+        (f"{index} - {candidate.name} • {candidate.app_id} • {candidate.score}%")
+        for index, candidate in enumerate(
+            candidates,
+            start=1,
+        )
+    ]
+
+    choices.extend(
+        [
+            "Pesquisar novamente",
+            "Digitar AppID manualmente",
+            "Cancelar",
+        ]
+    )
+
+    selected = questionary.select(
+        "Selecione o jogo correto:",
+        choices=choices,
+    ).ask()
+
+    if selected is None or selected == "Cancelar":
+        return None
+
+    if selected == "Pesquisar novamente":
+        return search_appid_on_steam_menu(game)
+
+    if selected == "Digitar AppID manualmente":
+        answer = questionary.text(
+            "Steam AppID:",
+        ).ask()
+
+        if answer is None:
+            return None
+
+        try:
+            app_id = int(answer.strip())
+        except ValueError:
+            console.print("[red]Steam AppID inválido.[/red]")
+            pause()
+            return None
+
+        if app_id <= 0:
+            console.print("[red]Steam AppID inválido.[/red]")
+            pause()
+            return None
+
+        return app_id
+
+    index = (
+        int(
+            selected.split(
+                " - ",
+                1,
+            )[0]
+        )
+        - 1
+    )
+
+    return candidates[index].app_id
+
+
 def select_appid_for_game(
     game: Game,
 ) -> int | None:
@@ -1470,6 +1604,7 @@ def select_appid_for_game(
 
         choices.extend(
             [
+                "Pesquisar outro jogo na Steam",
                 "Digitar AppID manualmente",
                 "Cancelar",
             ]
@@ -1482,6 +1617,9 @@ def select_appid_for_game(
 
         if selected is None or selected == "Cancelar":
             return None
+
+        if selected == "Pesquisar outro jogo na Steam":
+            return search_appid_on_steam_menu(game)
 
         if selected != "Digitar AppID manualmente":
             index = (
@@ -1504,10 +1642,14 @@ def select_appid_for_game(
         selected = questionary.select(
             "Como deseja continuar?",
             choices=[
+                "Pesquisar pelo nome do jogo na Steam",
                 "Digitar AppID manualmente",
                 "Cancelar",
             ],
         ).ask()
+
+        if selected == "Pesquisar pelo nome do jogo na Steam":
+            return search_appid_on_steam_menu(game)
 
         if selected is None or selected == "Cancelar":
             return None

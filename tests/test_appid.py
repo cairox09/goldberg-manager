@@ -3,8 +3,11 @@ import unittest
 from pathlib import Path
 
 from goldberg_manager.appid import (
+    get_game_search_query,
     normalize_game_name,
     resolve_local_appid,
+    search_game_on_steam,
+    search_steam_store,
 )
 from goldberg_manager.scanner import Game
 
@@ -189,6 +192,160 @@ class AppIdResolverTests(unittest.TestCase):
                 candidates[0].score,
                 90,
             )
+
+    def test_builds_clean_search_query(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+
+            game = self._create_game(
+                root / "RESIDENT EVIL 2 Opti V4 FIX",
+                "RESIDENT EVIL 2 Opti V4 FIX",
+            )
+
+            self.assertEqual(
+                get_game_search_query(game),
+                "resident evil 2",
+            )
+
+    def test_searches_steam_store_results(
+        self,
+    ) -> None:
+        html = """
+        <html>
+            <body>
+                <a
+                    class="search_result_row"
+                    href="https://store.steampowered.com/app/883710/Resident_Evil_2/"
+                >
+                    <span class="title">
+                        Resident Evil 2
+                    </span>
+                </a>
+
+                <a
+                    class="search_result_row"
+                    href="https://store.steampowered.com/app/952060/Resident_Evil_3/"
+                >
+                    <span class="title">
+                        Resident Evil 3
+                    </span>
+                </a>
+            </body>
+        </html>
+        """
+
+        requested_urls: list[str] = []
+
+        def fake_fetcher(
+            url: str,
+        ) -> str:
+            requested_urls.append(url)
+            return html
+
+        candidates = search_steam_store(
+            "resident evil 2",
+            fetcher=fake_fetcher,
+        )
+
+        self.assertTrue(requested_urls)
+
+        self.assertEqual(
+            candidates[0].app_id,
+            883710,
+        )
+
+        self.assertEqual(
+            candidates[0].name,
+            "Resident Evil 2",
+        )
+
+        self.assertEqual(
+            candidates[0].score,
+            100,
+        )
+
+        self.assertEqual(
+            candidates[0].source,
+            "steam_store",
+        )
+
+    def test_searches_game_using_clean_name(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+
+            game = self._create_game(
+                root / "RESIDENT EVIL 2 Opti V4 FIX",
+                "RESIDENT EVIL 2 Opti V4 FIX",
+            )
+
+            html = """
+            <a
+                href="https://store.steampowered.com/app/883710/Resident_Evil_2/"
+            >
+                <span class="title">
+                    Resident Evil 2
+                </span>
+            </a>
+            """
+
+            requested_urls: list[str] = []
+
+            def fake_fetcher(
+                url: str,
+            ) -> str:
+                requested_urls.append(url)
+                return html
+
+            candidates = search_game_on_steam(
+                game,
+                fetcher=fake_fetcher,
+            )
+
+            self.assertEqual(
+                candidates[0].app_id,
+                883710,
+            )
+
+            self.assertIn(
+                "resident+evil+2",
+                requested_urls[0],
+            )
+
+    def test_deduplicates_store_results(
+        self,
+    ) -> None:
+        html = """
+        <a href="https://store.steampowered.com/app/883710/a/">
+            <span class="title">
+                Resident Evil 2
+            </span>
+        </a>
+
+        <a href="https://store.steampowered.com/app/883710/b/">
+            <span class="title">
+                Resident Evil 2
+            </span>
+        </a>
+        """
+
+        candidates = search_steam_store(
+            "Resident Evil 2",
+            fetcher=lambda _: html,
+        )
+
+        self.assertEqual(
+            len(candidates),
+            1,
+        )
+
+        self.assertEqual(
+            candidates[0].app_id,
+            883710,
+        )
 
 
 if __name__ == "__main__":

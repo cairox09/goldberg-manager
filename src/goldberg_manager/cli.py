@@ -10,6 +10,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from .appid import resolve_local_appid
 from .backup import (
     backup_game,
     current_file_matches_backup,
@@ -59,7 +60,7 @@ console = Console()
 
 MENU_ITEMS = [
     ("1", "Detectar jogos"),
-    ("2", "Instalar Goldberg em um jogo [em desenvolvimento]"),
+    ("2", "Configurar Goldberg/GBE para um jogo"),
     ("3", "Gerar steam_interfaces"),
     ("4", "Gerenciar steam_settings"),
     ("5", "Backup do jogo"),
@@ -1407,6 +1408,185 @@ def manage_steam_settings_menu(
             manage_steam_settings_backups_menu(config)
 
 
+def select_appid_for_game(
+    game: Game,
+) -> int | None:
+    try:
+        candidates = resolve_local_appid(game)
+    except OSError as exc:
+        console.print(f"[red]Erro ao procurar AppID localmente:[/red] {exc}")
+        candidates = []
+
+    if candidates:
+        console.print()
+
+        table = Table(
+            title="Steam AppID encontrados",
+            box=box.ROUNDED,
+            border_style="cyan",
+        )
+
+        table.add_column(
+            "#",
+            justify="right",
+            style="bold cyan",
+        )
+        table.add_column("Jogo")
+        table.add_column("AppID")
+        table.add_column("Confiança")
+        table.add_column("Fonte")
+
+        source_names = {
+            "steam_appid.txt": "steam_appid.txt",
+            "steam_manifest": "Biblioteca Steam",
+        }
+
+        for index, candidate in enumerate(
+            candidates,
+            start=1,
+        ):
+            table.add_row(
+                str(index),
+                candidate.name,
+                str(candidate.app_id),
+                f"{candidate.score}%",
+                source_names.get(
+                    candidate.source,
+                    candidate.source,
+                ),
+            )
+
+        console.print(table)
+
+        choices = []
+
+        for index, candidate in enumerate(
+            candidates,
+            start=1,
+        ):
+            choices.append(
+                f"{index} - {candidate.name} • {candidate.app_id} • {candidate.score}%"
+            )
+
+        choices.extend(
+            [
+                "Digitar AppID manualmente",
+                "Cancelar",
+            ]
+        )
+
+        selected = questionary.select(
+            "Selecione o Steam AppID correto:",
+            choices=choices,
+        ).ask()
+
+        if selected is None or selected == "Cancelar":
+            return None
+
+        if selected != "Digitar AppID manualmente":
+            index = (
+                int(
+                    selected.split(
+                        " - ",
+                        1,
+                    )[0]
+                )
+                - 1
+            )
+
+            return candidates[index].app_id
+
+    else:
+        console.print(
+            "[yellow]Nenhum Steam AppID pôde ser identificado automaticamente.[/yellow]"
+        )
+
+        selected = questionary.select(
+            "Como deseja continuar?",
+            choices=[
+                "Digitar AppID manualmente",
+                "Cancelar",
+            ],
+        ).ask()
+
+        if selected is None or selected == "Cancelar":
+            return None
+
+    answer = questionary.text(
+        "Steam AppID:",
+    ).ask()
+
+    if answer is None:
+        return None
+
+    try:
+        app_id = int(answer.strip())
+    except ValueError:
+        console.print("[red]Steam AppID inválido.[/red]")
+        pause()
+        return None
+
+    if app_id <= 0:
+        console.print("[red]Steam AppID deve ser um número inteiro positivo.[/red]")
+        pause()
+        return None
+
+    return app_id
+
+
+def resolve_game_appid_menu(
+    game: Game,
+) -> None:
+    app_id = select_appid_for_game(game)
+
+    if app_id is None:
+        return
+
+    try:
+        snapshot = read_game_steam_settings(game)
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Não foi possível ler steam_settings:[/red] {exc}")
+        pause()
+        return
+
+    if snapshot.app_id == app_id:
+        console.print()
+        console.print("[green]Este AppID já está configurado para o jogo.[/green]")
+        console.print(f"[bold cyan]{app_id}[/bold cyan]")
+        pause()
+        return
+
+    console.print()
+
+    confirm = questionary.confirm(
+        f"Definir Steam AppID {app_id} para {game.name}?",
+        default=True,
+    ).ask()
+
+    if not confirm:
+        return
+
+    if not create_settings_safety_backup(game):
+        return
+
+    try:
+        output_path = update_game_steam_appid(
+            game,
+            app_id,
+        )
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Não foi possível salvar o AppID:[/red] {exc}")
+        pause()
+        return
+
+    console.print()
+    console.print("[green]Steam AppID configurado com sucesso![/green]")
+    console.print(f"[bold cyan]{app_id}[/bold cyan]")
+    console.print(f"[dim]{output_path}[/dim]")
+
+    pause()
+
+
 def generate_steam_settings_menu(config: AppConfig) -> None:
     clear_screen()
     render_header()
@@ -1424,24 +1604,9 @@ def generate_steam_settings_menu(config: AppConfig) -> None:
     if game is None:
         return
 
-    app_id_answer = questionary.text(
-        "Steam AppID:",
-        default="",
-    ).ask()
+    app_id = select_appid_for_game(game)
 
-    if app_id_answer is None:
-        return
-
-    try:
-        app_id = int(app_id_answer.strip())
-
-        if app_id <= 0:
-            raise ValueError
-    except ValueError:
-        console.print(
-            "[red]Steam AppID inválido. Digite um número inteiro positivo.[/red]"
-        )
-        pause()
+    if app_id is None:
         return
 
     account_name = questionary.text(
@@ -1723,6 +1888,158 @@ def open_game_directory_menu(config: AppConfig) -> None:
         pause()
 
 
+def goldberg_game_assistant_menu(
+    config: AppConfig,
+) -> None:
+    clear_screen()
+    render_header()
+
+    games = get_detected_games(config)
+
+    if games is None:
+        return
+
+    game = select_game(
+        games,
+        "Selecione o jogo para configurar Goldberg/GBE:",
+    )
+
+    if game is None:
+        return
+
+    while True:
+        clear_screen()
+        render_header()
+
+        try:
+            snapshot = read_game_steam_settings(game)
+        except (OSError, ValueError):
+            snapshot = None
+
+        try:
+            appid_candidates = resolve_local_appid(game)
+        except OSError:
+            appid_candidates = []
+
+        steam_settings_directory = game.steam_api.parent / "steam_settings"
+
+        steam_interfaces = steam_settings_directory / "steam_interfaces.txt"
+
+        table = Table.grid(padding=(0, 2))
+
+        table.add_column(
+            style="bold cyan",
+            no_wrap=True,
+        )
+        table.add_column(style="white")
+
+        table.add_row(
+            "Jogo",
+            game.name,
+        )
+
+        table.add_row(
+            "Arquitetura",
+            game.architecture,
+        )
+
+        if snapshot is not None and snapshot.app_id is not None:
+            app_id_status = f"[green]{snapshot.app_id}[/green]"
+
+        elif appid_candidates:
+            best = appid_candidates[0]
+
+            app_id_status = f"[yellow]{best.app_id} ({best.score}% provável)[/yellow]"
+
+        else:
+            app_id_status = "[red]Não identificado[/red]"
+
+        table.add_row(
+            "Steam AppID",
+            app_id_status,
+        )
+
+        if not has_backup(game):
+            backup_status = "[yellow]Ausente[/yellow]"
+
+        elif verify_backup(game):
+            backup_status = "[green]Íntegro[/green]"
+
+        else:
+            backup_status = "[red]CORROMPIDO[/red]"
+
+        table.add_row(
+            "Backup Steam API",
+            backup_status,
+        )
+
+        table.add_row(
+            "steam_settings",
+            (
+                "[green]Presente[/green]"
+                if steam_settings_directory.is_dir()
+                else "[yellow]Ausente[/yellow]"
+            ),
+        )
+
+        table.add_row(
+            "steam_interfaces",
+            (
+                "[green]Presente[/green]"
+                if steam_interfaces.is_file()
+                else "[yellow]Ausente[/yellow]"
+            ),
+        )
+
+        table.add_row(
+            "GBE configurado",
+            ("[green]Sim[/green]" if config.goldberg.root else "[yellow]Não[/yellow]"),
+        )
+
+        console.print(
+            Panel(
+                table,
+                title="Assistente Goldberg / GBE",
+                border_style="cyan",
+                box=box.ROUNDED,
+            )
+        )
+
+        choice = questionary.select(
+            "O que deseja fazer?",
+            choices=[
+                "Detectar / configurar Steam AppID",
+                "Gerenciar steam_settings",
+                "Gerar steam_interfaces",
+                "Fazer backup da Steam API",
+                "Restaurar Steam API original",
+                "Ver detalhes do jogo",
+                "Voltar",
+            ],
+        ).ask()
+
+        if choice is None or choice == "Voltar":
+            return
+
+        if choice == "Detectar / configurar Steam AppID":
+            resolve_game_appid_menu(game)
+
+        elif choice == "Gerenciar steam_settings":
+            manage_steam_settings_menu(config)
+
+        elif choice == "Gerar steam_interfaces":
+            generate_steam_interfaces_menu(config)
+
+        elif choice == "Fazer backup da Steam API":
+            create_game_backup(game)
+
+        elif choice == "Restaurar Steam API original":
+            restore_game_api(game)
+
+        elif choice == "Ver detalhes do jogo":
+            show_game_details(game)
+
+
 def start() -> int:
     config = load_config()
     _ = config
@@ -1738,9 +2055,7 @@ def start() -> int:
             show_games(config)
 
         elif choice == "2":
-            clear_screen()
-            render_header()
-            show_placeholder("Instalar Goldberg em um jogo [em desenvolvimento]")
+            goldberg_game_assistant_menu(config)
 
         elif choice == "3":
             generate_steam_interfaces_menu(config)

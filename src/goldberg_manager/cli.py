@@ -31,7 +31,13 @@ from .backup import (
 )
 from .config import AppConfig, load_config, save_config
 from .generators import generate_game_steam_interfaces
-from .scanner import Game, detect_games, detect_generate_interfaces
+from .scanner import (
+    Game,
+    GameCandidate,
+    detect_games,
+    detect_generate_interfaces,
+    discover_game_candidates,
+)
 from .settings import (
     SteamUserSettings,
     generate_game_steam_settings,
@@ -438,7 +444,79 @@ def get_menu_game(
     )
 
 
-def show_games(config: AppConfig) -> None:
+def show_game_candidate_details(
+    candidate: GameCandidate,
+) -> None:
+    clear_screen()
+    render_header()
+
+    table = Table.grid(padding=(0, 2))
+
+    table.add_column(
+        style="bold cyan",
+        no_wrap=True,
+    )
+
+    table.add_column(
+        style="white",
+    )
+
+    table.add_row(
+        "Nome",
+        candidate.name,
+    )
+
+    table.add_row(
+        "Raiz do jogo",
+        str(candidate.root_directory),
+    )
+
+    table.add_row(
+        "Executável",
+        str(candidate.executable),
+    )
+
+    table.add_row(
+        "Steam API",
+        "[yellow]Não localizada[/yellow]",
+    )
+
+    table.add_row(
+        "Status",
+        "[yellow]Não configurável[/yellow]",
+    )
+
+    table.add_row(
+        "Origem da detecção",
+        str(candidate.source_directory),
+    )
+
+    console.print(
+        Panel(
+            table,
+            title="Detalhes do jogo",
+            border_style="yellow",
+            box=box.ROUNDED,
+        )
+    )
+
+    console.print(
+        Panel.fit(
+            "[yellow]O executável foi detectado, "
+            "mas nenhuma Steam API foi localizada.[/yellow]\n\n"
+            "As funções que dependem da Steam API "
+            "não estão disponíveis para este jogo.",
+            border_style="yellow",
+            box=box.ROUNDED,
+        )
+    )
+
+    pause()
+
+
+def show_games(
+    config: AppConfig,
+) -> None:
     clear_screen()
     render_header()
 
@@ -454,12 +532,12 @@ def show_games(config: AppConfig) -> None:
         pause()
         return
 
-    games = detect_games(config.games.directories)
+    candidates = discover_game_candidates(config.games.directories)
 
-    if not games:
+    if not candidates:
         console.print(
             Panel.fit(
-                "[yellow]Nenhum jogo compatível foi encontrado.[/yellow]",
+                "[yellow]Nenhum jogo foi encontrado.[/yellow]",
                 border_style="yellow",
                 box=box.ROUNDED,
             )
@@ -473,24 +551,70 @@ def show_games(config: AppConfig) -> None:
         border_style="green",
     )
 
-    table.add_column("#", style="bold cyan", justify="right", no_wrap=True)
-    table.add_column("Jogo", style="bold")
-    table.add_column("Arquitetura")
-    table.add_column("Steam API")
-    table.add_column("Executável")
+    table.add_column(
+        "#",
+        style="bold cyan",
+        justify="right",
+        no_wrap=True,
+    )
 
-    for index, game in enumerate(games, start=1):
+    table.add_column(
+        "Jogo",
+        style="bold",
+    )
+
+    table.add_column(
+        "Arquitetura",
+    )
+
+    table.add_column(
+        "Steam API",
+    )
+
+    table.add_column(
+        "Status",
+    )
+
+    table.add_column(
+        "Executável",
+    )
+
+    for index, candidate in enumerate(
+        candidates,
+        start=1,
+    ):
+        if candidate.game is not None:
+            architecture = candidate.game.architecture
+
+            steam_api = candidate.game.steam_api.name
+
+            status = "[green]✓ Configurável[/green]"
+
+        else:
+            architecture = "—"
+            steam_api = "—"
+
+            status = "[yellow]⚠ Steam API ausente[/yellow]"
+
         table.add_row(
             str(index),
-            game.name,
-            game.architecture,
-            game.steam_api.name,
-            game.executable.name,
+            candidate.name,
+            architecture,
+            steam_api,
+            status,
+            candidate.executable.name,
         )
 
     console.print(table)
 
-    choices = [game.name for game in games]
+    choices = [
+        (f"{index} - {candidate.name}")
+        for index, candidate in enumerate(
+            candidates,
+            start=1,
+        )
+    ]
+
     choices.append("Voltar")
 
     selected = questionary.select(
@@ -501,9 +625,23 @@ def show_games(config: AppConfig) -> None:
     if selected is None or selected == "Voltar":
         return
 
-    selected_game = next(game for game in games if game.name == selected)
+    index = (
+        int(
+            selected.split(
+                " - ",
+                1,
+            )[0]
+        )
+        - 1
+    )
 
-    show_game_details(selected_game)
+    candidate = candidates[index]
+
+    if candidate.game is not None:
+        show_game_details(candidate.game)
+        return
+
+    show_game_candidate_details(candidate)
 
 
 def show_settings(config: AppConfig) -> None:

@@ -34,6 +34,7 @@ from .generators import generate_game_steam_interfaces
 from .scanner import (
     Game,
     GameCandidate,
+    detect_emu_config_generator,
     detect_games,
     detect_generate_interfaces,
     discover_game_candidates,
@@ -692,6 +693,7 @@ def show_settings(config: AppConfig) -> None:
                 "Adicionar diretório de jogos",
                 "Remover diretório de jogos",
                 "Detectar generate_interfaces",
+                "Detectar generate_emu_config",
                 "Salvar e voltar",
                 "Voltar sem salvar",
             ],
@@ -753,6 +755,29 @@ def show_settings(config: AppConfig) -> None:
                 console.print(f"64-bit: {x64}")
             if x86:
                 console.print(f"32-bit: {x86}")
+            pause()
+
+        elif choice == "Detectar generate_emu_config":
+            if config.goldberg.root is None:
+                console.print("[red]Defina primeiro a pasta do Goldberg.[/red]")
+                pause()
+                continue
+
+            generator = detect_emu_config_generator(config.goldberg.root)
+
+            if generator is None:
+                console.print("[red]generate_emu_config não foi encontrado.[/red]")
+                pause()
+                continue
+
+            config.goldberg.emu_config_generator = generator
+
+            save_config(config)
+
+            console.print("[green]generate_emu_config detectado e salvo.[/green]")
+
+            console.print(f"[dim]{generator}[/dim]")
+
             pause()
 
         elif choice == "Salvar e voltar":

@@ -2166,6 +2166,205 @@ def get_game_assistant_status(
     )
 
 
+def guided_configuration_menu(
+    config: AppConfig,
+    game: Game,
+) -> None:
+    while True:
+        clear_screen()
+        render_header()
+
+        status = get_game_assistant_status(
+            config,
+            game,
+        )
+
+        table = Table.grid(padding=(0, 2))
+
+        table.add_column(
+            style="bold cyan",
+            no_wrap=True,
+        )
+
+        table.add_column(style="white")
+
+        table.add_row(
+            "Jogo",
+            game.name,
+        )
+
+        table.add_row(
+            "",
+            "",
+        )
+
+        table.add_row(
+            "GBE",
+            (
+                "[green]✓ Pronto[/green]"
+                if status.gbe_configured
+                else "[yellow]⚠ Pendente[/yellow]"
+            ),
+        )
+
+        if status.app_id_configured:
+            app_id_status = f"[green]✓ {status.app_id}[/green]"
+
+        elif status.app_id is not None:
+            confidence = (
+                status.app_id_confidence if status.app_id_confidence is not None else 0
+            )
+
+            app_id_status = (
+                f"[yellow]⚠ Detectado: {status.app_id} ({confidence}%)[/yellow]"
+            )
+
+        else:
+            app_id_status = "[yellow]⚠ Pendente[/yellow]"
+
+        table.add_row(
+            "Steam AppID",
+            app_id_status,
+        )
+
+        if status.backup_exists and status.backup_valid:
+            backup_status = "[green]✓ Íntegro[/green]"
+
+        elif status.backup_exists:
+            backup_status = "[red]✗ CORROMPIDO[/red]"
+
+        else:
+            backup_status = "[yellow]⚠ Pendente[/yellow]"
+
+        table.add_row(
+            "Backup Steam API",
+            backup_status,
+        )
+
+        table.add_row(
+            "steam_settings",
+            (
+                "[green]✓ Pronto[/green]"
+                if status.steam_settings_exists
+                else "[yellow]⚠ Pendente[/yellow]"
+            ),
+        )
+
+        table.add_row(
+            "steam_interfaces",
+            (
+                "[green]✓ Pronto[/green]"
+                if status.steam_interfaces_exists
+                else "[yellow]⚠ Pendente[/yellow]"
+            ),
+        )
+
+        console.print(
+            Panel(
+                table,
+                title="Configuração guiada",
+                border_style=("green" if status.ready else "cyan"),
+                box=box.ROUNDED,
+            )
+        )
+
+        if status.ready:
+            console.print()
+            console.print(
+                Panel.fit(
+                    "[bold green]✓ JOGO PRONTO[/bold green]\n\n"
+                    "Todas as etapas necessárias "
+                    "foram concluídas.",
+                    title="Configuração concluída",
+                    border_style="green",
+                    box=box.ROUNDED,
+                )
+            )
+
+            pause()
+            return
+
+        if status.backup_exists and not status.backup_valid:
+            console.print()
+            console.print(
+                Panel.fit(
+                    "[bold red]✗ Backup corrompido[/bold red]\n\n"
+                    "A configuração guiada foi interrompida "
+                    "para evitar alterações sem um backup "
+                    "válido da Steam API.",
+                    border_style="red",
+                    box=box.ROUNDED,
+                )
+            )
+
+            pause()
+            return
+
+        if not status.gbe_configured:
+            next_step = "gbe"
+            next_step_name = "Configurar Goldberg / GBE"
+
+        elif not status.app_id_configured:
+            next_step = "appid"
+            next_step_name = "Confirmar / configurar Steam AppID"
+
+        elif not status.backup_exists:
+            next_step = "backup"
+            next_step_name = "Criar backup da Steam API"
+
+        elif not status.steam_settings_exists:
+            next_step = "settings"
+            next_step_name = "Configurar steam_settings"
+
+        elif not status.steam_interfaces_exists:
+            next_step = "interfaces"
+            next_step_name = "Gerar steam_interfaces"
+
+        else:
+            console.print()
+            console.print(
+                "[yellow]Não foi possível determinar a próxima etapa.[/yellow]"
+            )
+            pause()
+            return
+
+        console.print()
+        console.print("[bold]Próxima etapa recomendada:[/bold]")
+        console.print(f"[cyan]→ {next_step_name}[/cyan]")
+
+        choice = questionary.select(
+            "Como deseja continuar?",
+            choices=[
+                "Executar etapa recomendada",
+                "Voltar",
+            ],
+        ).ask()
+
+        if choice is None or choice == "Voltar":
+            return
+
+        if next_step == "gbe":
+            show_settings(config)
+
+        elif next_step == "appid":
+            resolve_game_appid_menu(game)
+
+        elif next_step == "backup":
+            create_game_backup(game)
+
+        elif next_step == "settings":
+            generate_steam_settings_menu(
+                config,
+                game=game,
+            )
+
+        elif next_step == "interfaces":
+            generate_steam_interfaces_menu(
+                config,
+                game=game,
+            )
+
+
 def goldberg_game_assistant_menu(
     config: AppConfig,
 ) -> None:
@@ -2304,6 +2503,7 @@ def goldberg_game_assistant_menu(
         choice = questionary.select(
             "O que deseja fazer?",
             choices=[
+                "Configuração guiada",
                 "Detectar / configurar Steam AppID",
                 "Gerenciar steam_settings",
                 "Gerar steam_interfaces",
@@ -2317,7 +2517,13 @@ def goldberg_game_assistant_menu(
         if choice is None or choice == "Voltar":
             return
 
-        if choice == "Detectar / configurar Steam AppID":
+        if choice == "Configuração guiada":
+            guided_configuration_menu(
+                config,
+                game,
+            )
+
+        elif choice == "Detectar / configurar Steam AppID":
             resolve_game_appid_menu(game)
 
         elif choice == "Gerenciar steam_settings":

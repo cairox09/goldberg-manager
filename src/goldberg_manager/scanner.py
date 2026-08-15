@@ -15,6 +15,19 @@ class Game:
     source_directory: Path
 
 
+@dataclass(slots=True)
+class GameCandidate:
+    name: str
+    root_directory: Path
+    executable: Path
+    source_directory: Path
+    game: Game | None
+
+    @property
+    def configurable(self) -> bool:
+        return self.game is not None
+
+
 def detect_generate_interfaces(
     root: Path,
 ) -> tuple[Path | None, Path | None]:
@@ -62,27 +75,82 @@ def detect_generate_interfaces(
     return x64, x86
 
 
-def _find_game_executable(game_directory: Path) -> Path | None:
-    executables = [path for path in game_directory.glob("*.exe") if path.is_file()]
+def _is_ignored_executable(
+    executable: Path,
+) -> bool:
+    name = executable.name.lower()
 
-    if not executables:
-        return None
-
-    ignored_names = {
+    ignored_exact_names = {
+        "install.exe",
+        "setup.exe",
         "uninstall.exe",
         "unins000.exe",
         "unins001.exe",
-        "setup.exe",
-        "install.exe",
+        "oalinst.exe",
     }
 
-    preferred = [path for path in executables if path.name.lower() not in ignored_names]
+    if name in ignored_exact_names:
+        return True
 
-    candidates = preferred or executables
+    if name.startswith("unins"):
+        return True
+
+    if name.endswith("setup.exe"):
+        return True
+
+    if name.endswith("installer.exe"):
+        return True
+
+    ignored_fragments = (
+        "crashpad",
+        "crashreporter",
+        "crash_reporter",
+        "tradução",
+        "traducao",
+        "translation",
+    )
+
+    return any(fragment in name for fragment in ignored_fragments)
+
+
+def _is_ignored_candidate_directory(
+    directory: Path,
+) -> bool:
+    ignored_names = {
+        "_commonredist",
+        "commonredist",
+        "redist",
+        "redistributables",
+        "tools",
+        "steamclient_experimental",
+    }
+
+    return any(part.lower() in ignored_names for part in directory.parts)
+
+
+def _is_standalone_launcher_candidate(
+    directory: Path,
+    executable: Path,
+) -> bool:
+    return (
+        "launcher" in directory.name.lower() and "launcher" in executable.name.lower()
+    )
+
+
+def _find_game_executable(
+    game_directory: Path,
+) -> Path | None:
+    executables = [path for path in game_directory.glob("*.exe") if path.is_file()]
+
+    candidates = [path for path in executables if not _is_ignored_executable(path)]
+
+    if not candidates:
+        return None
 
     candidates.sort(
         key=lambda path: (
             "launcher" in path.name.lower(),
+            "browser" in path.name.lower(),
             "crash" in path.name.lower(),
             path.name.lower(),
         )
@@ -172,6 +240,18 @@ def _get_architecture(steam_api: Path) -> str:
     return "32-bit"
 
 
+def _path_is_within(
+    path: Path,
+    parent: Path,
+) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+    except ValueError:
+        return False
+
+    return True
+
+
 def detect_games(directories: list[Path]) -> list[Game]:
     games: list[Game] = []
     seen_directories: set[Path] = set()
@@ -220,3 +300,121 @@ def detect_games(directories: list[Path]) -> list[Game]:
     games.sort(key=lambda game: game.name.lower())
 
     return games
+
+
+def discover_game_candidates(
+    directories: list[Path],
+) -> list[GameCandidate]:
+    compatible_games = detect_games(directories)
+
+    candidates_by_root: dict[
+        Path,
+        GameCandidate,
+    ] = {}
+
+    compatible_roots: list[Path] = []
+
+    for game in compatible_games:
+        resolved_root = game.root_directory.resolve()
+
+        compatible_roots.append(resolved_root)
+
+        candidates_by_root[resolved_root] = GameCandidate(
+            name=game.name,
+            root_directory=game.root_directory,
+            executable=game.executable,
+            source_directory=game.source_directory,
+            game=game,
+        )
+
+    unsupported_by_root: dict[
+        Path,
+        tuple[Path, Path, Path],
+    ] = {}
+
+    for source_directory in directories:
+        if not source_directory.is_dir():
+            continue
+
+        executable_directories = sorted(
+            {
+                executable.parent
+                for executable in source_directory.rglob("*.exe")
+                if executable.is_file()
+            },
+            key=lambda path: len(path.parts),
+        )
+
+        for executable_directory in executable_directories:
+            if _is_ignored_candidate_directory(executable_directory):
+                continue
+
+            executable = _find_game_executable(executable_directory)
+
+            if executable is None:
+                continue
+
+            candidate_root = _find_game_root(executable_directory)
+
+            if _is_standalone_launcher_candidate(
+                candidate_root,
+                executable,
+            ):
+                continue
+
+            resolved_root = candidate_root.resolve()
+
+            if any(
+                _path_is_within(
+                    resolved_root,
+                    compatible_root,
+                )
+                for compatible_root in compatible_roots
+            ):
+                continue
+
+            if resolved_root in unsupported_by_root:
+                continue
+
+            unsupported_by_root[resolved_root] = (
+                candidate_root,
+                executable,
+                source_directory,
+            )
+
+    selected_unsupported_roots: list[Path] = []
+
+    for resolved_root in sorted(
+        unsupported_by_root,
+        key=lambda path: len(path.parts),
+    ):
+        if any(
+            _path_is_within(
+                resolved_root,
+                selected_root,
+            )
+            for selected_root in selected_unsupported_roots
+        ):
+            continue
+
+        (
+            candidate_root,
+            executable,
+            source_directory,
+        ) = unsupported_by_root[resolved_root]
+
+        selected_unsupported_roots.append(resolved_root)
+
+        candidates_by_root[resolved_root] = GameCandidate(
+            name=_get_game_name(candidate_root),
+            root_directory=candidate_root,
+            executable=executable,
+            source_directory=source_directory,
+            game=None,
+        )
+
+    candidates = list(candidates_by_root.values())
+
+    candidates.sort(key=lambda candidate: candidate.name.lower())
+
+    return candidates

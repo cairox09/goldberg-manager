@@ -91,6 +91,35 @@ def _find_game_executable(game_directory: Path) -> Path | None:
     return candidates[0]
 
 
+def _find_game_directory_with_executable(
+    steam_api: Path,
+    source_directory: Path,
+) -> tuple[Path, Path] | None:
+    current = steam_api.parent
+    source_root = source_directory.resolve()
+
+    while True:
+        current_root = current.resolve()
+
+        try:
+            current_root.relative_to(source_root)
+        except ValueError:
+            return None
+
+        executable = _find_game_executable(current)
+
+        if executable is not None:
+            return (
+                current,
+                executable,
+            )
+
+        if current_root == source_root or current.parent == current:
+            return None
+
+        current = current.parent
+
+
 def _get_game_name(game_directory: Path) -> str:
     generic_names = {
         "gamedata",
@@ -113,8 +142,10 @@ def _get_game_name(game_directory: Path) -> str:
     return game_directory.name
 
 
-def _find_game_root(steam_api: Path) -> Path:
-    current = steam_api.parent
+def _find_game_root(
+    game_directory: Path,
+) -> Path:
+    current = game_directory
 
     generic_names = {
         "gamedata",
@@ -153,20 +184,24 @@ def detect_games(directories: list[Path]) -> list[Game]:
             if not steam_api.is_file():
                 continue
 
-            game_directory = steam_api.parent
-            resolved_directory = game_directory.resolve()
+            game_match = _find_game_directory_with_executable(
+                steam_api,
+                source_directory,
+            )
 
-            if resolved_directory in seen_directories:
+            if game_match is None:
                 continue
 
-            executable = _find_game_executable(game_directory)
+            game_directory, executable = game_match
 
-            if executable is None:
+            game_root = _find_game_root(game_directory)
+
+            resolved_root = game_root.resolve()
+
+            if resolved_root in seen_directories:
                 continue
 
-            seen_directories.add(resolved_directory)
-
-            game_root = _find_game_root(steam_api)
+            seen_directories.add(resolved_root)
             architecture = _get_architecture(steam_api)
             steam_api_relative_path = steam_api.relative_to(game_root)
 

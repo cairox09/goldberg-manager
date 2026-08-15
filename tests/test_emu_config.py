@@ -10,6 +10,7 @@ from goldberg_manager.emu_config import (
     EmuConfigOutputError,
     build_generate_emu_config_command,
     get_emu_output_directory,
+    import_generated_achievements,
     read_generated_emu_summary,
     run_generate_emu_config,
 )
@@ -383,6 +384,215 @@ class EmuConfigTests(unittest.TestCase):
             self.assertTrue(summary.has_product_info)
 
             self.assertTrue(summary.has_app_details)
+
+    def test_imports_generated_achievements(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+
+            generator = root / "generate_emu_config"
+
+            generator.write_bytes(b"generator")
+
+            steam_settings = root / "_OUTPUT" / "2353060" / "steam_settings"
+
+            images = steam_settings / "img"
+
+            images.mkdir(parents=True)
+
+            achievements = [
+                {
+                    "name": "ACH_ONE",
+                    "displayName": "One",
+                },
+                {
+                    "name": "ACH_TWO",
+                    "displayName": "Two",
+                },
+            ]
+
+            (steam_settings / "achievements.json").write_text(
+                json.dumps(achievements),
+                encoding="utf-8",
+            )
+
+            (images / "one.jpg").write_bytes(b"image-one")
+
+            (images / "two.jpg").write_bytes(b"image-two")
+
+            summary = read_generated_emu_summary(
+                generator,
+                2353060,
+            )
+
+            destination = root / "game" / "steam_settings"
+
+            result = import_generated_achievements(
+                summary,
+                destination,
+            )
+
+            self.assertTrue((destination / "achievements.json").is_file())
+
+            self.assertTrue((destination / "img" / "one.jpg").is_file())
+
+            self.assertTrue((destination / "img" / "two.jpg").is_file())
+
+            self.assertEqual(
+                result.achievements_count,
+                2,
+            )
+
+            self.assertEqual(
+                result.images_count,
+                2,
+            )
+
+    def test_import_preserves_other_steam_settings(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+
+            generator = root / "generate_emu_config"
+
+            generator.write_bytes(b"generator")
+
+            generated_settings = root / "_OUTPUT" / "2353060" / "steam_settings"
+
+            generated_settings.mkdir(parents=True)
+
+            (generated_settings / "achievements.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "name": "ACH_ONE",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            summary = read_generated_emu_summary(
+                generator,
+                2353060,
+            )
+
+            destination = root / "game" / "steam_settings"
+
+            destination.mkdir(parents=True)
+
+            user_config = destination / "configs.user.ini"
+
+            interfaces = destination / "steam_interfaces.txt"
+
+            app_id = destination / "steam_appid.txt"
+
+            user_config.write_text(
+                "account_name=Davi",
+                encoding="utf-8",
+            )
+
+            interfaces.write_text(
+                "SteamUser",
+                encoding="utf-8",
+            )
+
+            app_id.write_text(
+                "2353060",
+                encoding="utf-8",
+            )
+
+            import_generated_achievements(
+                summary,
+                destination,
+            )
+
+            self.assertEqual(
+                user_config.read_text(encoding="utf-8"),
+                "account_name=Davi",
+            )
+
+            self.assertEqual(
+                interfaces.read_text(encoding="utf-8"),
+                "SteamUser",
+            )
+
+            self.assertEqual(
+                app_id.read_text(encoding="utf-8"),
+                "2353060",
+            )
+
+    def test_rejects_import_without_achievements(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+
+            generator = root / "generate_emu_config"
+
+            generator.write_bytes(b"generator")
+
+            (root / "_OUTPUT" / "883710" / "steam_settings").mkdir(parents=True)
+
+            summary = read_generated_emu_summary(
+                generator,
+                883710,
+            )
+
+            with self.assertRaises(EmuConfigOutputError):
+                import_generated_achievements(
+                    summary,
+                    root / "game" / "steam_settings",
+                )
+
+    def test_imports_achievements_without_images(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+
+            generator = root / "generate_emu_config"
+
+            generator.write_bytes(b"generator")
+
+            generated_settings = root / "_OUTPUT" / "2353060" / "steam_settings"
+
+            generated_settings.mkdir(parents=True)
+
+            (generated_settings / "achievements.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "name": "ACH_ONE",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            summary = read_generated_emu_summary(
+                generator,
+                2353060,
+            )
+
+            result = import_generated_achievements(
+                summary,
+                root / "game" / "steam_settings",
+            )
+
+            self.assertEqual(
+                result.achievements_count,
+                1,
+            )
+
+            self.assertEqual(
+                result.images_count,
+                0,
+            )
+
+            self.assertIsNone(result.images_directory)
 
 
 if __name__ == "__main__":

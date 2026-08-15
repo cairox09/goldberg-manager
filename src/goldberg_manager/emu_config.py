@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,6 +42,15 @@ class EmuConfigSummary:
     @property
     def has_achievement_images(self) -> bool:
         return self.achievement_images_count > 0
+
+
+@dataclass(frozen=True, slots=True)
+class AchievementsImportResult:
+    destination_directory: Path
+    achievements_file: Path
+    images_directory: Path | None
+    achievements_count: int
+    images_count: int
 
 
 def _validate_app_id(
@@ -320,4 +330,66 @@ def read_generated_emu_summary(
                 "app_details.json",
             )
         ),
+    )
+
+
+def import_generated_achievements(
+    summary: EmuConfigSummary,
+    destination_directory: Path,
+) -> AchievementsImportResult:
+    achievements_source = summary.achievements_file
+
+    if (
+        achievements_source is None
+        or not achievements_source.is_file()
+        or not summary.has_achievements
+    ):
+        raise EmuConfigOutputError(
+            "Nenhum achievements.json válido foi gerado para importar."
+        )
+
+    destination_directory = destination_directory.expanduser().resolve()
+
+    destination_directory.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    achievements_destination = destination_directory / "achievements.json"
+
+    try:
+        shutil.copy2(
+            achievements_source,
+            achievements_destination,
+        )
+    except OSError as error:
+        raise EmuConfigOutputError(
+            "Não foi possível importar achievements.json."
+        ) from error
+
+    images_destination: Path | None = None
+
+    if (
+        summary.achievement_images_directory.is_dir()
+        and summary.achievement_images_count > 0
+    ):
+        images_destination = destination_directory / "img"
+
+        try:
+            shutil.copytree(
+                summary.achievement_images_directory,
+                images_destination,
+                dirs_exist_ok=True,
+            )
+        except OSError as error:
+            raise EmuConfigOutputError(
+                "Não foi possível importar as imagens dos achievements."
+            ) from error
+
+    return AchievementsImportResult(
+        destination_directory=(destination_directory),
+        achievements_file=(achievements_destination),
+        images_directory=(images_destination),
+        achievements_count=(summary.achievements_count),
+        images_count=(summary.achievement_images_count),
     )

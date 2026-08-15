@@ -89,6 +89,94 @@ class ScannerTests(unittest.TestCase):
 
             self.assertEqual(games, [])
 
+    def test_detects_game_with_deep_separate_steam_api(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            library = Path(temp_directory)
+
+            game_root = library / "Invincible VS"
+
+            steam_directory = (
+                game_root
+                / "Engine"
+                / "Binaries"
+                / "ThirdParty"
+                / "Steamworks"
+                / "Steamv161"
+                / "Win64"
+            )
+
+            shipping_directory = game_root / "TagFighter" / "Binaries" / "Win64"
+
+            steam_directory.mkdir(parents=True)
+
+            shipping_directory.mkdir(parents=True)
+
+            executable = game_root / "InvincibleVS.exe"
+
+            shipping_executable = shipping_directory / "InvincibleVS-Win64-Shipping.exe"
+
+            steam_api = steam_directory / "steam_api64.dll"
+
+            executable.write_bytes(b"exe")
+
+            shipping_executable.write_bytes(b"exe")
+
+            steam_api.write_bytes(b"dll")
+
+            games = detect_games([library])
+
+            self.assertEqual(
+                len(games),
+                1,
+            )
+
+            game = games[0]
+
+            self.assertEqual(
+                game.name,
+                "Invincible VS",
+            )
+
+            self.assertEqual(
+                game.root_directory,
+                game_root,
+            )
+
+            self.assertEqual(
+                game.executable,
+                executable,
+            )
+
+            self.assertEqual(
+                game.steam_api,
+                steam_api,
+            )
+
+            self.assertEqual(
+                game.steam_api_relative_path,
+                Path(
+                    "Engine/"
+                    "Binaries/"
+                    "ThirdParty/"
+                    "Steamworks/"
+                    "Steamv161/"
+                    "Win64/"
+                    "steam_api64.dll"
+                ),
+            )
+
+            self.assertEqual(
+                game.architecture,
+                "64-bit",
+            )
+
+            self.assertEqual(
+                game.source_directory,
+                library,
+            )
+
     def test_detects_generate_interfaces_tools(self) -> None:
         with tempfile.TemporaryDirectory() as temp_directory:
             root = Path(temp_directory)

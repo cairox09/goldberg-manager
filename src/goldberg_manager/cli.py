@@ -54,6 +54,7 @@ APP_VERSION = "0.1.0"
 class GameAssistantStatus:
     app_id: int | None
     app_id_confidence: int | None
+    app_id_configured: bool
     backup_exists: bool
     backup_valid: bool
     steam_settings_exists: bool
@@ -64,6 +65,7 @@ class GameAssistantStatus:
     def ready(self) -> bool:
         return (
             self.app_id is not None
+            and self.app_id_configured
             and self.backup_exists
             and self.backup_valid
             and self.steam_settings_exists
@@ -2120,6 +2122,8 @@ def get_game_assistant_status(
 
     steam_interfaces = steam_settings_directory / "steam_interfaces.txt"
 
+    user_config = steam_settings_directory / "configs.user.ini"
+
     try:
         snapshot = read_game_steam_settings(game)
     except (OSError, ValueError):
@@ -2127,10 +2131,12 @@ def get_game_assistant_status(
 
     app_id: int | None = None
     app_id_confidence: int | None = None
+    app_id_configured = False
 
     if snapshot is not None and snapshot.app_id is not None:
         app_id = snapshot.app_id
         app_id_confidence = 100
+        app_id_configured = True
 
     else:
         try:
@@ -2151,9 +2157,10 @@ def get_game_assistant_status(
     return GameAssistantStatus(
         app_id=app_id,
         app_id_confidence=app_id_confidence,
+        app_id_configured=app_id_configured,
         backup_exists=backup_exists,
         backup_valid=backup_valid,
-        steam_settings_exists=(steam_settings_directory.is_dir()),
+        steam_settings_exists=(user_config.is_file()),
         steam_interfaces_exists=(steam_interfaces.is_file()),
         gbe_configured=(config.goldberg.root is not None),
     )

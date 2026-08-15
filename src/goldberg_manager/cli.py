@@ -74,6 +74,30 @@ class GameAssistantStatus:
         )
 
 
+def get_next_guided_step(
+    status: GameAssistantStatus,
+) -> str | None:
+    if status.backup_exists and not status.backup_valid:
+        return "blocked"
+
+    if not status.gbe_configured:
+        return "gbe"
+
+    if not status.app_id_configured:
+        return "appid"
+
+    if not status.backup_exists:
+        return "backup"
+
+    if not status.steam_settings_exists:
+        return "settings"
+
+    if not status.steam_interfaces_exists:
+        return "interfaces"
+
+    return None
+
+
 class MissingDependencyError(RuntimeError):
     pass
 
@@ -2284,7 +2308,9 @@ def guided_configuration_menu(
             pause()
             return
 
-        if status.backup_exists and not status.backup_valid:
+        next_step = get_next_guided_step(status)
+
+        if next_step == "blocked":
             console.print()
             console.print(
                 Panel.fit(
@@ -2300,24 +2326,19 @@ def guided_configuration_menu(
             pause()
             return
 
-        if not status.gbe_configured:
-            next_step = "gbe"
+        if next_step == "gbe":
             next_step_name = "Configurar Goldberg / GBE"
 
-        elif not status.app_id_configured:
-            next_step = "appid"
+        elif next_step == "appid":
             next_step_name = "Confirmar / configurar Steam AppID"
 
-        elif not status.backup_exists:
-            next_step = "backup"
+        elif next_step == "backup":
             next_step_name = "Criar backup da Steam API"
 
-        elif not status.steam_settings_exists:
-            next_step = "settings"
+        elif next_step == "settings":
             next_step_name = "Configurar steam_settings"
 
-        elif not status.steam_interfaces_exists:
-            next_step = "interfaces"
+        elif next_step == "interfaces":
             next_step_name = "Gerar steam_interfaces"
 
         else:

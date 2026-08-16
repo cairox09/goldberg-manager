@@ -587,6 +587,51 @@ class SteamSettingsTests(unittest.TestCase):
                 "SteamClient021\n",
             )
 
+    def test_rejects_unknown_country_code(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            steam_settings = Path(temp_directory) / "steam_settings"
+
+            with self.assertRaises(ValueError):
+                update_user_setting(
+                    steam_settings,
+                    "ip_country",
+                    "ZZ",
+                )
+
+    def test_rejects_unknown_language_update(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            steam_settings = Path(temp_directory) / "steam_settings"
+
+            with self.assertRaises(ValueError):
+                update_user_setting(
+                    steam_settings,
+                    "language",
+                    "portugues-br",
+                )
+
+    def test_normalizes_language_update(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            steam_settings = Path(temp_directory) / "steam_settings"
+
+            update_user_setting(
+                steam_settings,
+                "language",
+                "BRAZILIAN",
+            )
+
+            snapshot = read_user_config(steam_settings)
+
+            self.assertEqual(
+                snapshot.language,
+                "brazilian",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

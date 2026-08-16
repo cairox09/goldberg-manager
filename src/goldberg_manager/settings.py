@@ -6,6 +6,10 @@ from pathlib import Path
 
 from .generators import generate_steam_appid
 from .scanner import Game
+from .settings_catalog import (
+    is_valid_country_code,
+    is_valid_steam_language,
+)
 
 
 @dataclass(slots=True)
@@ -42,14 +46,24 @@ def generate_user_config(
     if settings.account_steamid is not None and settings.account_steamid <= 0:
         raise ValueError("O SteamID deve ser um número inteiro positivo.")
 
-    language = settings.language.strip() if settings.language is not None else None
+    language = (
+        settings.language.strip().casefold() if settings.language is not None else None
+    )
+
+    if language and not is_valid_steam_language(language):
+        raise ValueError(
+            "O idioma deve ser um código Steam válido, como brazilian ou english."
+        )
 
     ip_country = (
         settings.ip_country.strip().upper() if settings.ip_country is not None else None
     )
 
-    if ip_country is not None and (len(ip_country) != 2 or not ip_country.isalpha()):
-        raise ValueError("O código do país deve possuir duas letras, como BR.")
+    if ip_country is not None and not is_valid_country_code(ip_country):
+        raise ValueError(
+            "O código do país deve possuir duas letras "
+            "e ser um ISO 3166-1 alpha-2 válido, como BR."
+        )
 
     local_save_path = (
         settings.local_save_path.strip()
@@ -457,6 +471,22 @@ def update_user_setting(
 
             normalized_value = str(steam_id)
 
+    elif field == "language":
+        if value is None or not str(value).strip():
+            normalized_value = None
+
+        else:
+            language = str(value).strip().casefold()
+
+            if not is_valid_steam_language(language):
+                raise ValueError(
+                    "O idioma deve ser um "
+                    "código Steam válido, "
+                    "como brazilian ou english."
+                )
+
+            normalized_value = language
+
     elif field == "ip_country":
         if value is None or not str(value).strip():
             normalized_value = None
@@ -464,8 +494,11 @@ def update_user_setting(
         else:
             country = str(value).strip().upper()
 
-            if len(country) != 2 or not country.isalpha():
-                raise ValueError("O código do país deve possuir duas letras, como BR.")
+            if not is_valid_country_code(country):
+                raise ValueError(
+                    "O código do país deve possuir duas letras "
+                    "e ser um ISO 3166-1 alpha-2 válido, como BR."
+                )
 
             normalized_value = country
 

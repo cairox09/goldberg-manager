@@ -60,6 +60,11 @@ from .settings_backup import (
     list_steam_settings_backups,
     restore_steam_settings_backup,
 )
+from .settings_catalog import (
+    STEAM_LANGUAGE_CHOICES,
+    SettingChoice,
+    get_country_choices,
+)
 
 APP_NAME = "Goldberg Manager"
 APP_VERSION = "0.1.0"
@@ -1021,6 +1026,41 @@ def create_settings_safety_backup(
     return True
 
 
+def select_catalog_value(
+    message: str,
+    choices: tuple[
+        SettingChoice,
+        ...,
+    ],
+    current_value: str | None = None,
+) -> str | None:
+    display_to_value = {choice.display.casefold(): (choice.value) for choice in choices}
+
+    current_display = ""
+
+    if current_value is not None:
+        normalized_current = current_value.casefold()
+
+        for choice in choices:
+            if choice.value.casefold() == normalized_current:
+                current_display = choice.display
+                break
+
+    answer = questionary.autocomplete(
+        message,
+        choices=[choice.display for choice in choices],
+        default=current_display,
+        ignore_case=True,
+        match_middle=True,
+        validate=lambda value: value.casefold() in display_to_value,
+    ).ask()
+
+    if answer is None:
+        return None
+
+    return display_to_value[answer.casefold()]
+
+
 def edit_steam_settings_menu(
     config: AppConfig,
     game: Game | None = None,
@@ -1186,13 +1226,30 @@ def edit_steam_settings_menu(
                 pause()
 
             elif choice.startswith("Idioma —"):
-                answer = questionary.text(
-                    "Novo idioma (vazio remove a configuração):",
-                    default=snapshot.language or "",
+                action = questionary.select(
+                    "Idioma:",
+                    choices=[
+                        "Selecionar / pesquisar idioma",
+                        "Remover configuração",
+                        "Cancelar",
+                    ],
                 ).ask()
 
-                if answer is None:
+                if action is None or action == "Cancelar":
                     continue
+
+                if action == "Remover configuração":
+                    language = None
+
+                else:
+                    language = select_catalog_value(
+                        "Digite ou selecione o idioma:",
+                        STEAM_LANGUAGE_CHOICES,
+                        snapshot.language,
+                    )
+
+                    if language is None:
+                        continue
 
                 if not create_settings_safety_backup(game):
                     continue
@@ -1200,20 +1257,43 @@ def edit_steam_settings_menu(
                 update_user_setting(
                     steam_settings_directory,
                     "language",
-                    answer.strip() or None,
+                    language,
                 )
 
-                console.print("[green]Idioma atualizado com sucesso.[/green]")
+                if language is None:
+                    console.print("[green]Configuração de idioma removida.[/green]")
+                else:
+                    console.print(f"[green]Idioma atualizado:[/green] {language}")
+
                 pause()
 
             elif choice.startswith("País —"):
-                answer = questionary.text(
-                    "Novo país (duas letras; vazio remove):",
-                    default=snapshot.ip_country or "",
+                action = questionary.select(
+                    "País:",
+                    choices=[
+                        "Selecionar / pesquisar país",
+                        "Remover configuração",
+                        "Cancelar",
+                    ],
                 ).ask()
 
-                if answer is None:
+                if action is None or action == "Cancelar":
                     continue
+
+                if action == "Remover configuração":
+                    country = None
+
+                else:
+                    country_choices = get_country_choices()
+
+                    country = select_catalog_value(
+                        "Digite ou selecione o país:",
+                        country_choices,
+                        snapshot.ip_country,
+                    )
+
+                    if country is None:
+                        continue
 
                 if not create_settings_safety_backup(game):
                     continue
@@ -1221,10 +1301,14 @@ def edit_steam_settings_menu(
                 update_user_setting(
                     steam_settings_directory,
                     "ip_country",
-                    answer.strip() or None,
+                    country,
                 )
 
-                console.print("[green]País atualizado com sucesso.[/green]")
+                if country is None:
+                    console.print("[green]Configuração de país removida.[/green]")
+                else:
+                    console.print(f"[green]País atualizado:[/green] {country}")
+
                 pause()
 
             elif choice.startswith("Saves —"):

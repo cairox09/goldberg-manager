@@ -2,38 +2,70 @@
 
 [![CI](https://github.com/cairox09/goldberg-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/cairox09/goldberg-manager/actions/workflows/ci.yml)
 
-**Goldberg Manager** is a Linux command-line application for detecting games that use the Steamworks API and safely managing their original Steam API libraries.
+**Goldberg Manager** is a Linux command-line application for discovering games and safely managing Goldberg/GBE Fork configuration, Steamworks metadata, backups and achievements.
 
-The project is being developed with Linux, Wine and Proton workflows in mind, with planned integration for Goldberg/GBE Fork configuration.
-
+The project is designed for Linux, Wine and Proton workflows and provides guided tools for Steam AppID resolution, `steam_settings`, `steam_interfaces`, GSE metadata generation and achievement management.
 > [!IMPORTANT]
 > Goldberg Manager does not provide games or remove DRM.
 > Use it only with software you own or are otherwise authorized to modify.
 
 ## Current features
 
-- Detect games inside configurable directories.
+### Game discovery
+
+- Discover games inside configurable directories.
+- Detect games with or without a Steam API library.
 - Detect `steam_api.dll` and `steam_api64.dll`.
 - Detect 32-bit and 64-bit games.
+- Support nested and non-standard Steam API layouts.
+- Filter installers, redistributables, helper tools and standalone launchers.
 - Identify the game root, executable and Steam API location.
-- Display detailed information about detected games.
-- Detect Goldberg/GBE Fork tools such as `generate_interfaces`.
-- Create safe backups of original Steam API libraries.
-- Store backup metadata and SHA-256 hashes.
+- Display detailed game information.
+
+### Steam AppID
+
+- Resolve AppIDs from existing configuration.
+- Detect AppIDs from local Steam manifests.
+- Search the Steam Store for unresolved games.
+- Cache Steam AppID search results.
+- Configure AppIDs interactively.
+
+### Goldberg / GBE configuration
+
+- Detect Goldberg/GBE Fork tools.
+- Detect 32-bit and 64-bit `generate_interfaces` executables.
+- Generate `steam_interfaces`.
+- Generate and manage `steam_settings`.
+- Guided per-game configuration assistant.
+- Searchable language and country selectors.
+- Detect languages supported by generated game metadata.
+
+### Backups and safety
+
+- Create verified backups of original Steam API libraries.
+- Store SHA-256 backup metadata.
 - Verify backup integrity before restoration.
-- Detect whether the current Steam API differs from the original backup.
 - Restore original Steam API libraries.
-- Open game directories from the CLI.
-- Persistent configuration.
-- Automated tests and GitHub Actions CI.
+- Create complete `steam_settings` snapshots.
+- Verify and restore `steam_settings` snapshots.
+- Automatically create safety snapshots before destructive changes.
 
-## In development
+### GSE metadata and achievements
 
-The following features are visible in the interface but are not implemented yet:
+- Detect GSE `generate_emu_config`.
+- Run `generate_emu_config` from the game assistant.
+- Support authenticated and anonymous metadata generation.
+- Parse achievements, images, languages, DLCs, depots and branches.
+- Import generated achievements and achievement images.
+- Safely reimport achievements without leaving stale images.
+- Detect and display installed achievement counts.
 
-- Automatic Goldberg/GBE Fork installation.
-- `steam_interfaces` generation.
-- `steam_settings` generation.
+### Development
+
+- Installable Python package with the `goldberg-manager` command.
+- Automated tests.
+- GitHub Actions CI for Python 3.11 through 3.14.
+- Automated tagged releases with wheel, source archive and SHA-256 checksums.
 
 ## Requirements
 
@@ -61,7 +93,7 @@ source .venv/bin/activate
 Install the downloaded wheel:
 
 ```bash
-python -m pip install ./goldberg_manager-0.1.0-py3-none-any.whl
+python -m pip install ./goldberg_manager-0.2.0-py3-none-any.whl
 ```
 
 Run:
@@ -139,10 +171,9 @@ python -m twine check dist/*
 
 Goldberg Manager is currently in **alpha development**.
 
-Version `0.1.0` focuses on game detection, configuration, verified backups and safe restoration.
+Version `0.2.0` significantly expands the project with Steam AppID resolution, guided configuration, `steam_settings`, `steam_interfaces`, GSE metadata generation, achievement management, verified settings snapshots and searchable configuration selectors.
 
-Automatic emulator installation and configuration are planned for future releases.
-
+Future releases will continue improving integrations, usability, packaging and platform support before the stable `1.0.0` release.
 ## License
 
 Goldberg Manager is distributed under the MIT License.

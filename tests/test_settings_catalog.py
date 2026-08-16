@@ -5,12 +5,46 @@ from goldberg_manager.settings_catalog import (
     get_country_choices,
     is_valid_country_code,
     is_valid_steam_language,
+    prioritize_setting_choices,
     search_country_choices,
     search_setting_choices,
 )
 
 
 class SettingsCatalogTests(unittest.TestCase):
+    def test_prioritizes_supported_languages(
+        self,
+    ) -> None:
+        prioritized = prioritize_setting_choices(
+            STEAM_LANGUAGE_CHOICES,
+            (
+                "brazilian",
+                "english",
+                "japanese",
+                "unknown-language",
+                "brazilian",
+            ),
+        )
+
+        self.assertEqual(
+            [choice.value for choice in prioritized[:3]],
+            [
+                "brazilian",
+                "english",
+                "japanese",
+            ],
+        )
+
+        self.assertEqual(
+            len(prioritized),
+            len(STEAM_LANGUAGE_CHOICES),
+        )
+
+        self.assertEqual(
+            len({choice.value for choice in prioritized}),
+            len(prioritized),
+        )
+
     def test_contains_supported_steam_languages(
         self,
     ) -> None:

@@ -35,6 +35,7 @@ from .emu_config import (
     EmuConfigSummary,
     import_generated_achievements,
     read_generated_emu_summary,
+    read_generated_supported_languages,
     read_installed_achievements_status,
     run_generate_emu_config,
 )
@@ -64,6 +65,7 @@ from .settings_catalog import (
     STEAM_LANGUAGE_CHOICES,
     SettingChoice,
     get_country_choices,
+    prioritize_setting_choices,
 )
 
 APP_NAME = "Goldberg Manager"
@@ -1061,6 +1063,54 @@ def select_catalog_value(
     return display_to_value[answer.casefold()]
 
 
+def get_game_language_choices(
+    config: AppConfig,
+    app_id: int | None,
+) -> tuple[
+    tuple[SettingChoice, ...],
+    tuple[str, ...],
+]:
+    if app_id is None:
+        return (
+            STEAM_LANGUAGE_CHOICES,
+            (),
+        )
+
+    generator = config.goldberg.emu_config_generator
+
+    if generator is None or not generator.is_file():
+        return (
+            STEAM_LANGUAGE_CHOICES,
+            (),
+        )
+
+    try:
+        supported_languages = read_generated_supported_languages(
+            generator,
+            app_id,
+        )
+
+    except (
+        EmuConfigError,
+        OSError,
+        ValueError,
+    ):
+        return (
+            STEAM_LANGUAGE_CHOICES,
+            (),
+        )
+
+    choices = prioritize_setting_choices(
+        STEAM_LANGUAGE_CHOICES,
+        supported_languages,
+    )
+
+    return (
+        choices,
+        supported_languages,
+    )
+
+
 def edit_steam_settings_menu(
     config: AppConfig,
     game: Game | None = None,
@@ -1242,9 +1292,44 @@ def edit_steam_settings_menu(
                     language = None
 
                 else:
+                    language_choices, supported_languages = get_game_language_choices(
+                        config,
+                        snapshot.app_id,
+                    )
+
+                    if supported_languages:
+                        supported_choices = [
+                            choice
+                            for choice in language_choices
+                            if choice.value in supported_languages
+                        ]
+
+                        console.print()
+
+                        supported_table = Table.grid(padding=(0, 2))
+
+                        supported_table.add_column(style="green")
+
+                        for supported_choice in supported_choices:
+                            supported_table.add_row(
+                                "✓",
+                                supported_choice.display,
+                            )
+
+                        console.print(
+                            Panel(
+                                supported_table,
+                                title=("Idiomas suportados pelo jogo"),
+                                border_style="green",
+                                box=box.ROUNDED,
+                            )
+                        )
+
+                        console.print()
+
                     language = select_catalog_value(
                         "Digite ou selecione o idioma:",
-                        STEAM_LANGUAGE_CHOICES,
+                        language_choices,
                         snapshot.language,
                     )
 

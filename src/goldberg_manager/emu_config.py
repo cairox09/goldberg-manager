@@ -478,3 +478,42 @@ def import_generated_achievements(
         achievements_count=(summary.achievements_count),
         images_count=(summary.achievement_images_count),
     )
+
+
+def read_generated_supported_languages(
+    generator: Path,
+    app_id: int,
+) -> tuple[str, ...]:
+    _validate_app_id(app_id)
+
+    output_directory = get_emu_output_directory(
+        generator,
+        app_id,
+    )
+
+    languages_file = output_directory / "steam_settings" / "supported_languages.txt"
+
+    if not languages_file.is_file():
+        return ()
+
+    try:
+        lines = languages_file.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise EmuConfigOutputError(f"Não foi possível ler {languages_file}") from error
+
+    languages: list[str] = []
+    seen: set[str] = set()
+
+    for raw_line in lines:
+        language = raw_line.strip().casefold()
+
+        if not language or language.startswith(("#", ";")):
+            continue
+
+        if language in seen:
+            continue
+
+        seen.add(language)
+        languages.append(language)
+
+    return tuple(languages)

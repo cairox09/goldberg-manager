@@ -12,12 +12,64 @@ from goldberg_manager.emu_config import (
     get_emu_output_directory,
     import_generated_achievements,
     read_generated_emu_summary,
+    read_generated_supported_languages,
     read_installed_achievements_status,
     run_generate_emu_config,
 )
 
 
 class EmuConfigTests(unittest.TestCase):
+    def test_reads_generated_supported_languages(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+
+            generator = root / "generate_emu_config"
+
+            generator.write_bytes(b"generator")
+
+            steam_settings = root / "_OUTPUT" / "883710" / "steam_settings"
+
+            steam_settings.mkdir(parents=True)
+
+            (steam_settings / "supported_languages.txt").write_text(
+                "english\nfrench\nBRAZILIAN\n\n# comentário\nenglish\n",
+                encoding="utf-8",
+            )
+
+            languages = read_generated_supported_languages(
+                generator,
+                883710,
+            )
+
+            self.assertEqual(
+                languages,
+                (
+                    "english",
+                    "french",
+                    "brazilian",
+                ),
+            )
+
+    def test_missing_generated_languages_returns_empty(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            generator = Path(temp_directory) / "generate_emu_config"
+
+            generator.write_bytes(b"generator")
+
+            languages = read_generated_supported_languages(
+                generator,
+                883710,
+            )
+
+            self.assertEqual(
+                languages,
+                (),
+            )
+
     def test_builds_authenticated_command(
         self,
     ) -> None:

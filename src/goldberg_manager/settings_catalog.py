@@ -102,6 +102,34 @@ def search_setting_choices(
     return matches
 
 
+def prioritize_setting_choices(
+    choices: tuple[SettingChoice, ...],
+    preferred_values: tuple[str, ...],
+) -> tuple[SettingChoice, ...]:
+    choices_by_value = {choice.value.casefold(): choice for choice in choices}
+
+    prioritized: list[SettingChoice] = []
+    used_values: set[str] = set()
+
+    for value in preferred_values:
+        normalized = value.strip().casefold()
+
+        choice = choices_by_value.get(normalized)
+
+        if choice is None:
+            continue
+
+        if choice.value in used_values:
+            continue
+
+        prioritized.append(choice)
+        used_values.add(choice.value)
+
+    prioritized.extend(choice for choice in choices if choice.value not in used_values)
+
+    return tuple(prioritized)
+
+
 def get_country_choices() -> tuple[SettingChoice, ...]:
     choices = [
         SettingChoice(

@@ -30,10 +30,19 @@ from .backup import (
     verify_backup,
 )
 from .config import AppConfig, load_config, save_config
+from .emu_config import (
+    EmuConfigError,
+    EmuConfigSummary,
+    import_generated_achievements,
+    read_generated_emu_summary,
+    read_installed_achievements_status,
+    run_generate_emu_config,
+)
 from .generators import generate_game_steam_interfaces
 from .scanner import (
     Game,
     GameCandidate,
+    detect_emu_config_generator,
     detect_games,
     detect_generate_interfaces,
     discover_game_candidates,
@@ -692,6 +701,7 @@ def show_settings(config: AppConfig) -> None:
                 "Adicionar diretório de jogos",
                 "Remover diretório de jogos",
                 "Detectar generate_interfaces",
+                "Detectar generate_emu_config",
                 "Salvar e voltar",
                 "Voltar sem salvar",
             ],
@@ -753,6 +763,29 @@ def show_settings(config: AppConfig) -> None:
                 console.print(f"64-bit: {x64}")
             if x86:
                 console.print(f"32-bit: {x86}")
+            pause()
+
+        elif choice == "Detectar generate_emu_config":
+            if config.goldberg.root is None:
+                console.print("[red]Defina primeiro a pasta do Goldberg.[/red]")
+                pause()
+                continue
+
+            generator = detect_emu_config_generator(config.goldberg.root)
+
+            if generator is None:
+                console.print("[red]generate_emu_config não foi encontrado.[/red]")
+                pause()
+                continue
+
+            config.goldberg.emu_config_generator = generator
+
+            save_config(config)
+
+            console.print("[green]generate_emu_config detectado e salvo.[/green]")
+
+            console.print(f"[dim]{generator}[/dim]")
+
             pause()
 
         elif choice == "Salvar e voltar":
@@ -2524,6 +2557,575 @@ def guided_configuration_menu(
             )
 
 
+def show_emu_config_summary(
+    summary: EmuConfigSummary,
+) -> None:
+    table = Table.grid(padding=(0, 2))
+
+    table.add_column(
+        style="bold cyan",
+        no_wrap=True,
+    )
+
+    table.add_column(
+        style="white",
+    )
+
+    table.add_row(
+        "Steam AppID",
+        str(summary.app_id),
+    )
+
+    table.add_row(
+        "Achievements",
+        (
+            f"[green]✓ {summary.achievements_count}[/green]"
+            if summary.has_achievements
+            else "[yellow]⚠ Não encontrados[/yellow]"
+        ),
+    )
+
+    table.add_row(
+        "Imagens",
+        (
+            f"[green]✓ {summary.achievement_images_count}[/green]"
+            if summary.has_achievement_images
+            else "[yellow]⚠ Nenhuma[/yellow]"
+        ),
+    )
+
+    table.add_row(
+        "Idiomas",
+        str(summary.supported_languages_count),
+    )
+
+    table.add_row(
+        "DLCs",
+        str(summary.dlc_count),
+    )
+
+    table.add_row(
+        "Depots",
+        str(summary.depots_count),
+    )
+
+    table.add_row(
+        "Branches",
+        str(summary.branches_count),
+    )
+
+    table.add_row(
+        "Product info",
+        (
+            "[green]✓ Sim[/green]"
+            if summary.has_product_info
+            else "[yellow]⚠ Não[/yellow]"
+        ),
+    )
+
+    table.add_row(
+        "App details",
+        (
+            "[green]✓ Sim[/green]"
+            if summary.has_app_details
+            else "[yellow]⚠ Não[/yellow]"
+        ),
+    )
+
+    console.print(
+        Panel(
+            table,
+            title="Dados gerados pelo GSE",
+            border_style="green",
+            box=box.ROUNDED,
+        )
+    )
+
+    console.print()
+    console.print("[dim]Output:[/dim]")
+    console.print(f"[dim]{summary.output_directory}[/dim]")
+
+
+def generate_emu_config_menu(
+    config: AppConfig,
+    game: Game | None = None,
+) -> None:
+    clear_screen()
+    render_header()
+
+    game = get_menu_game(
+        config,
+        game,
+        ("Selecione o jogo para gerar dados Steam / achievements:"),
+    )
+
+    if game is None:
+        return
+
+    generator = config.goldberg.emu_config_generator
+
+    if generator is None or not generator.is_file():
+        console.print(
+            Panel.fit(
+                "[yellow]generate_emu_config "
+                "não está configurado ou "
+                "não foi encontrado.[/yellow]\n\n"
+                "Entre em Configurações e use "
+                "'Detectar generate_emu_config'.",
+                border_style="yellow",
+                box=box.ROUNDED,
+            )
+        )
+
+        pause()
+        return
+
+    try:
+        snapshot = read_game_steam_settings(game)
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Não foi possível ler steam_settings:[/red] {exc}")
+        pause()
+        return
+
+    if snapshot.app_id is None:
+        console.print(
+            Panel.fit(
+                "[yellow]Este jogo ainda não "
+                "possui um Steam AppID "
+                "configurado.[/yellow]\n\n"
+                "Configure primeiro o AppID "
+                "pelo Assistente.",
+                border_style="yellow",
+                box=box.ROUNDED,
+            )
+        )
+
+        pause()
+        return
+
+    app_id = snapshot.app_id
+
+    mode = questionary.select(
+        "Como deseja acessar os dados Steam?",
+        choices=[
+            ("Autenticado (recomendado para achievements)"),
+            "Anônimo",
+            "Cancelar",
+        ],
+    ).ask()
+
+    if mode is None or mode == "Cancelar":
+        return
+
+    anonymous = mode == "Anônimo"
+
+    console.print()
+
+    table = Table.grid(padding=(0, 2))
+
+    table.add_column(
+        style="bold cyan",
+        no_wrap=True,
+    )
+
+    table.add_column(
+        style="white",
+    )
+
+    table.add_row(
+        "Jogo",
+        game.name,
+    )
+
+    table.add_row(
+        "Steam AppID",
+        str(app_id),
+    )
+
+    table.add_row(
+        "Generator",
+        str(generator),
+    )
+
+    table.add_row(
+        "Modo",
+        ("Anônimo" if anonymous else "Autenticado"),
+    )
+
+    console.print(
+        Panel(
+            table,
+            title="Geração de dados Steam",
+            border_style="cyan",
+            box=box.ROUNDED,
+        )
+    )
+
+    console.print()
+
+    console.print("[yellow]O diretório _OUTPUT deste AppID será recriado.[/yellow]")
+
+    console.print("[dim]Nenhum arquivo do jogo será alterado nesta etapa.[/dim]")
+
+    if not anonymous:
+        console.print()
+        console.print(
+            "[cyan]O generate_emu_config "
+            "poderá solicitar login, senha "
+            "e Steam Guard diretamente "
+            "no terminal.[/cyan]"
+        )
+
+        console.print("[dim]O Goldberg Manager não salvará essas credenciais.[/dim]")
+
+    console.print()
+
+    confirm = questionary.confirm(
+        "Executar generate_emu_config agora?",
+        default=True,
+    ).ask()
+
+    if not confirm:
+        return
+
+    console.print()
+    console.print("[bold cyan]Iniciando generate_emu_config...[/bold cyan]")
+    console.print()
+
+    try:
+        run_generate_emu_config(
+            generator,
+            app_id,
+            anonymous=anonymous,
+        )
+
+        summary = read_generated_emu_summary(
+            generator,
+            app_id,
+        )
+
+    except (
+        FileNotFoundError,
+        EmuConfigError,
+        OSError,
+        ValueError,
+    ) as exc:
+        clear_screen()
+        render_header()
+
+        console.print(
+            Panel.fit(
+                f"[red]Falha ao gerar os dados Steam.[/red]\n\n{exc}",
+                border_style="red",
+                box=box.ROUNDED,
+            )
+        )
+
+        pause()
+        return
+
+    clear_screen()
+    render_header()
+
+    console.print(
+        Panel.fit(
+            "[bold green]✓ Dados Steam gerados com sucesso![/bold green]",
+            border_style="green",
+            box=box.ROUNDED,
+        )
+    )
+
+    console.print()
+
+    show_emu_config_summary(summary)
+
+    console.print()
+
+    console.print("[dim]Os dados ainda não foram importados para o jogo.[/dim]")
+
+    pause()
+
+
+def import_generated_achievements_menu(
+    config: AppConfig,
+    game: Game | None = None,
+) -> None:
+    clear_screen()
+    render_header()
+
+    game = get_menu_game(
+        config,
+        game,
+        ("Selecione o jogo para importar achievements gerados:"),
+    )
+
+    if game is None:
+        return
+
+    generator = config.goldberg.emu_config_generator
+
+    if generator is None or not generator.is_file():
+        console.print(
+            Panel.fit(
+                "[yellow]generate_emu_config "
+                "não está configurado ou "
+                "não foi encontrado.[/yellow]\n\n"
+                "Entre em Configurações e use "
+                "'Detectar generate_emu_config'.",
+                border_style="yellow",
+                box=box.ROUNDED,
+            )
+        )
+
+        pause()
+        return
+
+    try:
+        snapshot = read_game_steam_settings(game)
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Não foi possível ler steam_settings:[/red] {exc}")
+        pause()
+        return
+
+    if snapshot.app_id is None:
+        console.print(
+            Panel.fit(
+                "[yellow]Este jogo ainda não "
+                "possui Steam AppID "
+                "configurado.[/yellow]\n\n"
+                "Configure primeiro o AppID "
+                "pelo Assistente.",
+                border_style="yellow",
+                box=box.ROUNDED,
+            )
+        )
+
+        pause()
+        return
+
+    app_id = snapshot.app_id
+
+    try:
+        summary = read_generated_emu_summary(
+            generator,
+            app_id,
+        )
+    except (
+        EmuConfigError,
+        OSError,
+        ValueError,
+    ) as exc:
+        console.print(
+            Panel.fit(
+                f"[red]Não foi possível ler os dados gerados pelo GSE.[/red]\n\n{exc}",
+                border_style="red",
+                box=box.ROUNDED,
+            )
+        )
+
+        pause()
+        return
+
+    if not summary.has_achievements:
+        console.print(
+            Panel.fit(
+                "[yellow]Nenhum achievement "
+                "foi encontrado no output "
+                "deste AppID.[/yellow]\n\n"
+                "Use primeiro a opção "
+                "'Gerar dados Steam / achievements'.",
+                border_style="yellow",
+                box=box.ROUNDED,
+            )
+        )
+
+        pause()
+        return
+
+    destination = get_steam_settings_directory(game)
+
+    achievements_destination = destination / "achievements.json"
+
+    images_destination = destination / "img"
+
+    show_emu_config_summary(summary)
+
+    console.print()
+
+    destination_table = Table.grid(padding=(0, 2))
+
+    destination_table.add_column(
+        style="bold cyan",
+        no_wrap=True,
+    )
+
+    destination_table.add_column(
+        style="white",
+    )
+
+    destination_table.add_row(
+        "Destino",
+        str(destination),
+    )
+
+    destination_table.add_row(
+        "Achievements",
+        str(summary.achievements_count),
+    )
+
+    destination_table.add_row(
+        "Imagens",
+        str(summary.achievement_images_count),
+    )
+
+    console.print(
+        Panel(
+            destination_table,
+            title="Importação",
+            border_style="cyan",
+            box=box.ROUNDED,
+        )
+    )
+
+    existing_targets: list[Path] = []
+
+    if achievements_destination.exists():
+        existing_targets.append(achievements_destination)
+
+    if images_destination.exists():
+        existing_targets.append(images_destination)
+
+    if existing_targets:
+        console.print()
+        console.print(
+            "[yellow]Atenção: já existem "
+            "dados de achievements no "
+            "steam_settings.[/yellow]"
+        )
+
+        for path in existing_targets:
+            console.print(f"[yellow]• {path}[/yellow]")
+
+        console.print()
+        console.print(
+            "[dim]Um snapshot completo do "
+            "steam_settings será criado "
+            "antes da importação.[/dim]"
+        )
+
+    else:
+        console.print()
+        console.print("[dim]Nenhum achievement instalado foi encontrado.[/dim]")
+
+    console.print()
+
+    confirm = questionary.confirm(
+        (f"Importar {summary.achievements_count} achievements para {game.name}?"),
+        default=not existing_targets,
+    ).ask()
+
+    if not confirm:
+        return
+
+    if not create_settings_safety_backup(game):
+        return
+
+    try:
+        result = import_generated_achievements(
+            summary,
+            destination,
+        )
+    except (
+        EmuConfigError,
+        OSError,
+        ValueError,
+    ) as exc:
+        console.print(
+            Panel.fit(
+                f"[red]Falha ao importar achievements.[/red]\n\n{exc}",
+                border_style="red",
+                box=box.ROUNDED,
+            )
+        )
+
+        pause()
+        return
+
+    if not result.achievements_file.is_file():
+        console.print(
+            Panel.fit(
+                "[red]A importação terminou, "
+                "mas achievements.json "
+                "não foi encontrado no "
+                "destino.[/red]",
+                border_style="red",
+                box=box.ROUNDED,
+            )
+        )
+
+        pause()
+        return
+
+    clear_screen()
+    render_header()
+
+    result_table = Table.grid(padding=(0, 2))
+
+    result_table.add_column(
+        style="bold cyan",
+        no_wrap=True,
+    )
+
+    result_table.add_column(
+        style="white",
+    )
+
+    result_table.add_row(
+        "Jogo",
+        game.name,
+    )
+
+    result_table.add_row(
+        "Achievements",
+        (f"[green]✓ {result.achievements_count}[/green]"),
+    )
+
+    result_table.add_row(
+        "Imagens",
+        (
+            f"[green]✓ {result.images_count}[/green]"
+            if result.images_count
+            else "[yellow]— Nenhuma[/yellow]"
+        ),
+    )
+
+    result_table.add_row(
+        "achievements.json",
+        str(result.achievements_file),
+    )
+
+    if result.images_directory is not None:
+        result_table.add_row(
+            "Imagens",
+            str(result.images_directory),
+        )
+
+    console.print(
+        Panel(
+            result_table,
+            title="Achievements importados",
+            border_style="green",
+            box=box.ROUNDED,
+        )
+    )
+
+    console.print()
+
+    console.print("[bold green]✓ Importação concluída com sucesso![/bold green]")
+
+    pause()
+
+
 def goldberg_game_assistant_menu(
     config: AppConfig,
 ) -> None:
@@ -2650,6 +3252,80 @@ def goldberg_game_assistant_menu(
             ),
         )
 
+        generator = config.goldberg.emu_config_generator
+
+        generator_ready = generator is not None and generator.is_file()
+
+        table.add_row(
+            "GSE generator",
+            (
+                "[green]✓ Configurado[/green]"
+                if generator_ready
+                else "[yellow]⚠ Não configurado[/yellow]"
+            ),
+        )
+
+        steam_settings_directory = get_steam_settings_directory(game)
+
+        try:
+            installed_achievements = read_installed_achievements_status(
+                steam_settings_directory
+            )
+
+        except EmuConfigError:
+            achievements_status = "[red]✗ achievements.json inválido[/red]"
+
+        else:
+            if installed_achievements.installed:
+                achievements_status = (
+                    "[green]✓ "
+                    f"{installed_achievements.achievements_count} "
+                    "instalados[/green]"
+                )
+
+            else:
+                generated_achievements = 0
+
+                if (
+                    generator_ready
+                    and status.app_id_configured
+                    and status.app_id is not None
+                ):
+                    try:
+                        generated_summary = read_generated_emu_summary(
+                            generator,
+                            status.app_id,
+                        )
+
+                    except (
+                        EmuConfigError,
+                        OSError,
+                        ValueError,
+                    ):
+                        pass
+
+                    else:
+                        if generated_summary.has_achievements:
+                            generated_achievements = (
+                                generated_summary.achievements_count
+                            )
+
+                if generated_achievements:
+                    achievements_status = (
+                        "[yellow]⚠ "
+                        f"{generated_achievements} "
+                        "gerados, não importados"
+                        "[/yellow]"
+                    )
+
+                else:
+                    achievements_status = "[dim]— Não gerados[/dim]"
+
+        table.add_row(
+            "Achievements",
+            achievements_status,
+        )
+
         console.print(
             Panel(
                 table,
@@ -2666,6 +3342,8 @@ def goldberg_game_assistant_menu(
                 "Detectar / configurar Steam AppID",
                 "Gerenciar steam_settings",
                 "Gerar steam_interfaces",
+                "Gerar dados Steam / achievements",
+                "Importar achievements gerados",
                 "Fazer backup da Steam API",
                 "Restaurar Steam API original",
                 "Ver detalhes do jogo",
@@ -2693,6 +3371,18 @@ def goldberg_game_assistant_menu(
 
         elif choice == "Gerar steam_interfaces":
             generate_steam_interfaces_menu(
+                config,
+                game=game,
+            )
+
+        elif choice == "Gerar dados Steam / achievements":
+            generate_emu_config_menu(
+                config,
+                game=game,
+            )
+
+        elif choice == "Importar achievements gerados":
+            import_generated_achievements_menu(
                 config,
                 game=game,
             )

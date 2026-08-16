@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from goldberg_manager.scanner import (
+    detect_emu_config_generator,
     detect_games,
     detect_generate_interfaces,
     discover_game_candidates,
@@ -197,6 +198,52 @@ class ScannerTests(unittest.TestCase):
 
             self.assertEqual(detected_x64, x64)
             self.assertEqual(detected_x86, x86)
+
+    def test_detects_emu_config_generator(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+
+            generator_directory = root / "gse_fork_tools" / "generate_emu_config"
+
+            generator_directory.mkdir(parents=True)
+
+            generator = generator_directory / "generate_emu_config"
+
+            generator.write_bytes(b"generator")
+
+            detected = detect_emu_config_generator(root)
+
+            self.assertEqual(
+                detected,
+                generator,
+            )
+
+    def test_detects_emu_config_generator_from_sibling_tools(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            base = Path(temp_directory)
+
+            goldberg_root = base / "gbe_fork" / "release"
+
+            goldberg_root.mkdir(parents=True)
+
+            generator_directory = base / "gse_fork_tools" / "generate_emu_config"
+
+            generator_directory.mkdir(parents=True)
+
+            generator = generator_directory / "generate_emu_config"
+
+            generator.write_bytes(b"generator")
+
+            detected = detect_emu_config_generator(goldberg_root)
+
+            self.assertEqual(
+                detected,
+                generator,
+            )
 
     def test_detects_game_root_through_nested_generic_directories(self) -> None:
         with tempfile.TemporaryDirectory() as temp_directory:

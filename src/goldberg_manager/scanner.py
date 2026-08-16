@@ -75,6 +75,76 @@ def detect_generate_interfaces(
     return x64, x86
 
 
+def detect_emu_config_generator(
+    root: Path,
+) -> Path | None:
+    root = root.expanduser().resolve()
+
+    search_roots = [root]
+
+    current = root
+
+    for _ in range(2):
+        if current.parent == current:
+            break
+
+        current = current.parent
+
+        if current not in search_roots:
+            search_roots.append(current)
+
+    relative_candidates = (
+        (
+            "gse_fork_tools",
+            "generate_emu_config",
+            "generate_emu_config",
+        ),
+        (
+            "gse_fork_tools",
+            "generate_emu_config",
+            "generate_emu_config.exe",
+        ),
+        (
+            "tools",
+            "generate_emu_config",
+            "generate_emu_config",
+        ),
+        (
+            "tools",
+            "generate_emu_config",
+            "generate_emu_config.exe",
+        ),
+        (
+            "generate_emu_config",
+            "generate_emu_config",
+        ),
+        (
+            "generate_emu_config",
+            "generate_emu_config.exe",
+        ),
+        ("generate_emu_config",),
+        ("generate_emu_config.exe",),
+    )
+
+    for search_root in search_roots:
+        for relative_parts in relative_candidates:
+            candidate = search_root.joinpath(*relative_parts)
+
+            if candidate.is_file():
+                return candidate
+
+    for search_root in search_roots:
+        for name in (
+            "generate_emu_config",
+            "generate_emu_config.exe",
+        ):
+            for path in search_root.rglob(name):
+                if path.is_file():
+                    return path
+
+    return None
+
+
 def _is_ignored_executable(
     executable: Path,
 ) -> bool:

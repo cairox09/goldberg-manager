@@ -399,9 +399,7 @@ def resolve_sentinel_runtime_saves(
                     saves_directory=save_root.path,
                     app_id=app_id,
                     app_directory=app_directory,
-                    achievements_path=(
-                        app_directory / "achievements.json"
-                    ),
+                    achievements_path=(app_directory / "achievements.json"),
                 )
             )
 

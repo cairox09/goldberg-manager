@@ -979,19 +979,11 @@ def show_game_sentinel_status(
             resolution.runtime_saves,
         )
 
-        runtime_label = (
-            "correspondência"
-            if runtime_count == 1
-            else "correspondências"
-        )
+        runtime_label = "correspondência" if runtime_count == 1 else "correspondências"
 
         table.add_row(
             "Runtime",
-            (
-                f"[green]✓ "
-                f"{runtime_count} "
-                f"{runtime_label}[/green]"
-            ),
+            (f"[green]✓ {runtime_count} {runtime_label}[/green]"),
         )
 
         multiple_matches = runtime_count > 1

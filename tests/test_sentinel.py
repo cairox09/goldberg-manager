@@ -230,19 +230,13 @@ class SentinelTests(unittest.TestCase):
             self.assertFalse(status.watcher_configured)
             self.assertFalse(status.gse_watcher_configured)
 
-
     def test_discovers_drive_c_below_configured_prefix(self) -> None:
         with tempfile.TemporaryDirectory() as temp_directory:
             root = Path(temp_directory)
 
             prefix_root = root / "Prefixes"
 
-            drive_c = (
-                prefix_root
-                / "Sonic"
-                / "pfx"
-                / "drive_c"
-            )
+            drive_c = prefix_root / "Sonic" / "pfx" / "drive_c"
 
             drive_c.mkdir(parents=True)
 
@@ -271,12 +265,7 @@ class SentinelTests(unittest.TestCase):
 
             prefix_root = root / "Prefixes"
 
-            drive_c = (
-                prefix_root
-                / "Game"
-                / "pfx"
-                / "DRIVE_C"
-            )
+            drive_c = prefix_root / "Game" / "pfx" / "DRIVE_C"
 
             drive_c.mkdir(parents=True)
 
@@ -300,12 +289,7 @@ class SentinelTests(unittest.TestCase):
 
             prefix_root = root / "Prefixes"
 
-            drive_c = (
-                prefix_root
-                / "Sonic"
-                / "pfx"
-                / "drive_c"
-            )
+            drive_c = prefix_root / "Sonic" / "pfx" / "drive_c"
 
             drive_c.mkdir(parents=True)
 
@@ -351,14 +335,7 @@ class SentinelTests(unittest.TestCase):
 
             self.assertEqual(
                 roots[0].path,
-                (
-                    drive_c
-                    / "users"
-                    / "steamuser"
-                    / "AppData"
-                    / "Roaming"
-                    / "GSE Saves"
-                ),
+                (drive_c / "users" / "steamuser" / "AppData" / "Roaming" / "GSE Saves"),
             )
 
             self.assertFalse(
@@ -371,12 +348,7 @@ class SentinelTests(unittest.TestCase):
 
             prefix_root = root / "Prefixes"
 
-            drive_c = (
-                prefix_root
-                / "Game"
-                / "pfx"
-                / "drive_c"
-            )
+            drive_c = prefix_root / "Game" / "pfx" / "drive_c"
 
             drive_c.mkdir(parents=True)
 
@@ -430,29 +402,17 @@ class SentinelTests(unittest.TestCase):
 
             prefix_root = root / "Prefixes"
 
-            drive_c = (
-                prefix_root
-                / "Sonic"
-                / "pfx"
-                / "drive_c"
-            )
+            drive_c = prefix_root / "Sonic" / "pfx" / "drive_c"
 
             saves_directory = (
-                drive_c
-                / "users"
-                / "steamuser"
-                / "AppData"
-                / "Roaming"
-                / "GSE Saves"
+                drive_c / "users" / "steamuser" / "AppData" / "Roaming" / "GSE Saves"
             )
 
             app_directory = saves_directory / "212480"
 
             app_directory.mkdir(parents=True)
 
-            achievements_path = (
-                app_directory / "achievements.json"
-            )
+            achievements_path = app_directory / "achievements.json"
 
             achievements_path.write_text(
                 "{}",

@@ -469,6 +469,9 @@ def show_game_details(game) -> None:
             show_game_sentinel_status(game)
 
         elif choice == "Fazer backup da Steam API":
+            create_game_backup(game)
+
+        elif choice == "Restaurar Steam API original":
             restore_game_api(game)
 
         else:

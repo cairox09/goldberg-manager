@@ -682,6 +682,80 @@ class EmuConfigTests(unittest.TestCase):
             with self.assertRaises(EmuConfigOutputError):
                 read_installed_achievements_status(steam_settings)
 
+    def test_reimport_removes_stale_achievement_images(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+
+            generator = root / "generate_emu_config"
+
+            generator.write_bytes(b"generator")
+
+            generated_settings = root / "_OUTPUT" / "2353060" / "steam_settings"
+
+            generated_images = generated_settings / "img"
+
+            generated_images.mkdir(parents=True)
+
+            (generated_settings / "achievements.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "name": "ACH_ONE",
+                        },
+                        {
+                            "name": "ACH_TWO",
+                        },
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            (generated_images / "one.jpg").write_bytes(b"new-one")
+
+            (generated_images / "two.jpg").write_bytes(b"new-two")
+
+            summary = read_generated_emu_summary(
+                generator,
+                2353060,
+            )
+
+            destination = root / "game" / "steam_settings"
+
+            installed_images = destination / "img"
+
+            installed_images.mkdir(parents=True)
+
+            (installed_images / "one.jpg").write_bytes(b"old-one")
+
+            (installed_images / "stale.jpg").write_bytes(b"stale")
+
+            import_generated_achievements(
+                summary,
+                destination,
+            )
+
+            self.assertFalse((installed_images / "stale.jpg").exists())
+
+            self.assertEqual(
+                (installed_images / "one.jpg").read_bytes(),
+                b"new-one",
+            )
+
+            self.assertEqual(
+                (installed_images / "two.jpg").read_bytes(),
+                b"new-two",
+            )
+
+            self.assertEqual(
+                {path.name for path in installed_images.iterdir() if path.is_file()},
+                {
+                    "one.jpg",
+                    "two.jpg",
+                },
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

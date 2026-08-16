@@ -371,6 +371,59 @@ def read_generated_emu_summary(
     )
 
 
+def _replace_directory(
+    source: Path,
+    destination: Path,
+) -> None:
+    if not source.is_dir():
+        raise EmuConfigOutputError(f"Diretório de origem não encontrado: {source}")
+
+    if destination.exists() and not destination.is_dir():
+        raise EmuConfigOutputError(
+            f"O destino existe, mas não é um diretório: {destination}"
+        )
+
+    staging_directory = destination.parent / (
+        f".{destination.name}.goldberg-manager-new"
+    )
+
+    previous_directory = destination.parent / (
+        f".{destination.name}.goldberg-manager-old"
+    )
+
+    for temporary_directory in (
+        staging_directory,
+        previous_directory,
+    ):
+        if temporary_directory.is_dir():
+            shutil.rmtree(temporary_directory)
+
+    try:
+        shutil.copytree(
+            source,
+            staging_directory,
+        )
+
+        if destination.is_dir():
+            destination.rename(previous_directory)
+
+        staging_directory.rename(destination)
+
+        if previous_directory.is_dir():
+            shutil.rmtree(previous_directory)
+
+    except OSError as error:
+        if not destination.exists() and previous_directory.is_dir():
+            previous_directory.rename(destination)
+
+        if staging_directory.is_dir():
+            shutil.rmtree(staging_directory)
+
+        raise EmuConfigOutputError(
+            "Não foi possível substituir o diretório de imagens."
+        ) from error
+
+
 def import_generated_achievements(
     summary: EmuConfigSummary,
     destination_directory: Path,
@@ -413,16 +466,10 @@ def import_generated_achievements(
     ):
         images_destination = destination_directory / "img"
 
-        try:
-            shutil.copytree(
-                summary.achievement_images_directory,
-                images_destination,
-                dirs_exist_ok=True,
-            )
-        except OSError as error:
-            raise EmuConfigOutputError(
-                "Não foi possível importar as imagens dos achievements."
-            ) from error
+        _replace_directory(
+            summary.achievement_images_directory,
+            images_destination,
+        )
 
     return AchievementsImportResult(
         destination_directory=(destination_directory),

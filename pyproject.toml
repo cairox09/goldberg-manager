@@ -31,6 +31,7 @@ description = "Manage Goldberg/GBE Fork configuration for games on Linux."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "pycountry>=26.2.16",
     "questionary>=2.0",
     "rich>=13.0",
 ]

@@ -50,8 +50,12 @@ from .scanner import (
 )
 from .sentinel import (
     SENTINEL_GSE_EMULATOR_ID,
+    SentinelConfigStatus,
+    SentinelRuntimeSave,
     detect_sentinel,
     read_sentinel_config,
+    resolve_sentinel_runtime_saves,
+    resolve_sentinel_save_roots,
 )
 from .settings import (
     SteamUserSettings,
@@ -101,6 +105,18 @@ class GameAssistantStatus:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class GameSentinelResolution:
+    app_id: int | None
+    app_id_confidence: int | None
+    app_id_source: str | None
+    runtime_saves: tuple[SentinelRuntimeSave, ...]
+
+    @property
+    def runtime_found(self) -> bool:
+        return bool(self.runtime_saves)
+
+
 def get_next_guided_step(
     status: GameAssistantStatus,
 ) -> str | None:
@@ -123,6 +139,59 @@ def get_next_guided_step(
         return "interfaces"
 
     return None
+
+
+def resolve_game_sentinel_runtime(
+    game: Game,
+    *,
+    status: SentinelConfigStatus | None = None,
+) -> GameSentinelResolution:
+    if status is None:
+        installation = detect_sentinel()
+
+        status = read_sentinel_config(
+            installation.config_path,
+        )
+
+    app_id_candidates = resolve_local_appid(game)
+
+    runtime_saves = resolve_sentinel_runtime_saves(
+        status,
+    )
+
+    for candidate in app_id_candidates:
+        matches = tuple(
+            runtime_save
+            for runtime_save in runtime_saves
+            if runtime_save.app_id == candidate.app_id
+        )
+
+        if not matches:
+            continue
+
+        return GameSentinelResolution(
+            app_id=candidate.app_id,
+            app_id_confidence=candidate.score,
+            app_id_source=candidate.source,
+            runtime_saves=matches,
+        )
+
+    if not app_id_candidates:
+        return GameSentinelResolution(
+            app_id=None,
+            app_id_confidence=None,
+            app_id_source=None,
+            runtime_saves=(),
+        )
+
+    best_candidate = app_id_candidates[0]
+
+    return GameSentinelResolution(
+        app_id=best_candidate.app_id,
+        app_id_confidence=best_candidate.score,
+        app_id_source=best_candidate.source,
+        runtime_saves=(),
+    )
 
 
 class MissingDependencyError(RuntimeError):
@@ -389,13 +458,17 @@ def show_game_details(game) -> None:
         choice = questionary.select(
             "O que deseja fazer?",
             choices=[
+                "Verificar Sentinel / achievements",
                 "Fazer backup da Steam API",
                 "Restaurar Steam API original",
                 "Voltar",
             ],
         ).ask()
 
-        if choice == "Fazer backup da Steam API":
+        if choice == "Verificar Sentinel / achievements":
+            show_game_sentinel_status(game)
+
+        elif choice == "Fazer backup da Steam API":
             create_game_backup(game)
 
         elif choice == "Restaurar Steam API original":
@@ -786,9 +859,27 @@ def show_sentinel_status() -> None:
         watcher_status,
     )
 
+    gse_save_roots = tuple(
+        save_root
+        for save_root in resolve_sentinel_save_roots(status)
+        if (save_root.emulator_id == SENTINEL_GSE_EMULATOR_ID and save_root.exists)
+    )
+
+    if len(gse_save_roots) == 1:
+        gse_saves_status = f"[green]✓ Encontrado[/green] • {gse_save_roots[0].path}"
+
+    elif len(gse_save_roots) > 1:
+        gse_saves_status = f"[green]✓ {len(gse_save_roots)} encontrados[/green]"
+
+    elif status.gse_enabled:
+        gse_saves_status = "[yellow]⚠ Não encontrado[/yellow]"
+
+    else:
+        gse_saves_status = "[dim]— GSE não configurado[/dim]"
+
     table.add_row(
         "GSE Saves",
-        "[dim]— Caminho ainda não verificado[/dim]",
+        gse_saves_status,
     )
 
     console.print(
@@ -809,6 +900,163 @@ def show_sentinel_status() -> None:
         "nenhuma configuração do Sentinel foi alterada • "
         "o estado acima não confirma se o processo está em execução.[/dim]"
     )
+
+
+def show_game_sentinel_status(
+    game: Game,
+) -> None:
+    clear_screen()
+    render_header()
+
+    installation = detect_sentinel()
+
+    status = read_sentinel_config(
+        installation.config_path,
+    )
+
+    resolution = resolve_game_sentinel_runtime(
+        game,
+        status=status,
+    )
+
+    table = Table.grid(
+        padding=(0, 2),
+    )
+
+    table.add_column(
+        style="bold cyan",
+        no_wrap=True,
+    )
+
+    table.add_column(
+        style="white",
+    )
+
+    table.add_row(
+        "Jogo",
+        game.name,
+    )
+
+    table.add_row(
+        "Sentinel",
+        (
+            f"[green]✓ Detectado[/green] • {installation.executable}"
+            if installation.installed
+            else "[yellow]⚠ Não detectado[/yellow]"
+        ),
+    )
+
+    table.add_row(
+        "Configuração",
+        (
+            "[green]✓ Válida[/green]"
+            if status.configured
+            else "[yellow]⚠ Não configurada[/yellow]"
+        ),
+    )
+
+    if resolution.app_id is None:
+        app_id_status = "[yellow]⚠ Não resolvido[/yellow]"
+    else:
+        details: list[str] = []
+
+        if resolution.app_id_source is not None:
+            details.append(
+                resolution.app_id_source,
+            )
+
+        if resolution.app_id_confidence is not None:
+            details.append(f"{resolution.app_id_confidence}%")
+
+        metadata = " • " + " • ".join(details) if details else ""
+
+        app_id_status = f"[green]✓ {resolution.app_id}[/green]{metadata}"
+
+    table.add_row(
+        "AppID",
+        app_id_status,
+    )
+
+    if resolution.runtime_saves:
+        runtime_count = len(
+            resolution.runtime_saves,
+        )
+
+        runtime_label = "correspondência" if runtime_count == 1 else "correspondências"
+
+        table.add_row(
+            "Runtime",
+            (f"[green]✓ {runtime_count} {runtime_label}[/green]"),
+        )
+
+        multiple_matches = runtime_count > 1
+
+        for index, runtime_save in enumerate(
+            resolution.runtime_saves,
+            start=1,
+        ):
+            suffix = f" #{index}" if multiple_matches else ""
+
+            table.add_row(
+                f"Emulador{suffix}",
+                runtime_save.emulator_id,
+            )
+
+            table.add_row(
+                f"Prefixo{suffix}",
+                str(runtime_save.prefix_path),
+            )
+
+            table.add_row(
+                f"drive_c{suffix}",
+                str(runtime_save.drive_c),
+            )
+
+            table.add_row(
+                f"Save root{suffix}",
+                str(runtime_save.saves_directory),
+            )
+
+            table.add_row(
+                f"AppID runtime{suffix}",
+                str(runtime_save.app_id),
+            )
+
+            table.add_row(
+                f"achievements.json{suffix}",
+                (
+                    f"[green]✓ Encontrado[/green] • {runtime_save.achievements_path}"
+                    if runtime_save.achievements_exists
+                    else (
+                        "[yellow]⚠ Ainda não criado[/yellow] • "
+                        f"{runtime_save.achievements_path}"
+                    )
+                ),
+            )
+
+    else:
+        table.add_row(
+            "Runtime",
+            "[yellow]⚠ Nenhum save correspondente encontrado[/yellow]",
+        )
+
+    console.print(
+        Panel(
+            table,
+            title="Sentinel • Runtime do jogo",
+            border_style=("green" if resolution.runtime_found else "yellow"),
+            box=box.ROUNDED,
+        )
+    )
+
+    console.print(
+        "[dim]"
+        "Somente leitura • "
+        "nenhum arquivo do Sentinel ou do GSE foi alterado."
+        "[/dim]"
+    )
+
+    pause()
 
 
 def show_settings(config: AppConfig) -> None:

@@ -17,6 +17,11 @@ SENTINEL_GOLDBERG_RELATIVE_PATH = Path(
     "users/steamuser/AppData/Roaming/Goldberg SteamEmu Saves"
 )
 
+_SENTINEL_RUNTIME_RELATIVE_PATHS = {
+    SENTINEL_GSE_EMULATOR_ID: SENTINEL_GSE_RELATIVE_PATH,
+    SENTINEL_GOLDBERG_EMULATOR_ID: SENTINEL_GOLDBERG_RELATIVE_PATH,
+}
+
 
 @dataclass(frozen=True, slots=True)
 class SentinelEmulator:
@@ -82,6 +87,39 @@ class SentinelConfigStatus:
     @property
     def gse_watcher_configured(self) -> bool:
         return self.configured and bool(self.prefix_paths) and self.gse_enabled
+
+
+@dataclass(frozen=True, slots=True)
+class SentinelDriveC:
+    prefix_path: Path
+    drive_c: Path
+
+
+@dataclass(frozen=True, slots=True)
+class SentinelSaveRoot:
+    emulator_id: str
+    prefix_path: Path
+    drive_c: Path
+    path: Path
+
+    @property
+    def exists(self) -> bool:
+        return self.path.is_dir()
+
+
+@dataclass(frozen=True, slots=True)
+class SentinelRuntimeSave:
+    emulator_id: str
+    prefix_path: Path
+    drive_c: Path
+    saves_directory: Path
+    app_id: int
+    app_directory: Path
+    achievements_path: Path
+
+    @property
+    def achievements_exists(self) -> bool:
+        return self.achievements_path.is_file()
 
 
 def _xdg_directory(
@@ -256,4 +294,124 @@ def read_sentinel_config(
         schema_valid=prefixes_valid and emulators_valid,
         prefix_paths=prefixes,
         emulators=emulators,
+    )
+
+
+def discover_sentinel_drive_c_paths(
+    prefix_paths: tuple[Path, ...],
+) -> tuple[SentinelDriveC, ...]:
+    resolved: list[SentinelDriveC] = []
+
+    for prefix_path in prefix_paths:
+        if not prefix_path.is_dir():
+            continue
+
+        for root, directory_names, _ in os.walk(
+            prefix_path,
+            onerror=lambda _: None,
+        ):
+            directory_names.sort(
+                key=str.casefold,
+            )
+
+            root_path = Path(root)
+
+            for directory_name in directory_names:
+                if directory_name.casefold() != "drive_c":
+                    continue
+
+                resolved.append(
+                    SentinelDriveC(
+                        prefix_path=prefix_path,
+                        drive_c=root_path / directory_name,
+                    )
+                )
+
+    return tuple(resolved)
+
+
+def resolve_sentinel_save_roots(
+    status: SentinelConfigStatus,
+) -> tuple[SentinelSaveRoot, ...]:
+    if not status.configured:
+        return ()
+
+    drive_c_paths = discover_sentinel_drive_c_paths(
+        status.prefix_paths,
+    )
+
+    roots: list[SentinelSaveRoot] = []
+
+    for resolved_drive in drive_c_paths:
+        for emulator in status.emulators:
+            relative_path = _SENTINEL_RUNTIME_RELATIVE_PATHS.get(
+                emulator.id,
+            )
+
+            if relative_path is None:
+                continue
+
+            roots.append(
+                SentinelSaveRoot(
+                    emulator_id=emulator.id,
+                    prefix_path=resolved_drive.prefix_path,
+                    drive_c=resolved_drive.drive_c,
+                    path=resolved_drive.drive_c / relative_path,
+                )
+            )
+
+    return tuple(roots)
+
+
+def resolve_sentinel_runtime_saves(
+    status: SentinelConfigStatus,
+) -> tuple[SentinelRuntimeSave, ...]:
+    runtime_saves: list[SentinelRuntimeSave] = []
+
+    for save_root in resolve_sentinel_save_roots(status):
+        if not save_root.exists:
+            continue
+
+        try:
+            entries = sorted(
+                save_root.path.iterdir(),
+                key=lambda entry: entry.name.casefold(),
+            )
+        except OSError:
+            continue
+
+        for app_directory in entries:
+            name = app_directory.name
+
+            if not app_directory.is_dir():
+                continue
+
+            if not name.isascii() or not name.isdigit():
+                continue
+
+            app_id = int(name)
+
+            runtime_saves.append(
+                SentinelRuntimeSave(
+                    emulator_id=save_root.emulator_id,
+                    prefix_path=save_root.prefix_path,
+                    drive_c=save_root.drive_c,
+                    saves_directory=save_root.path,
+                    app_id=app_id,
+                    app_directory=app_directory,
+                    achievements_path=(app_directory / "achievements.json"),
+                )
+            )
+
+    return tuple(runtime_saves)
+
+
+def find_sentinel_runtime_saves(
+    status: SentinelConfigStatus,
+    app_id: int,
+) -> tuple[SentinelRuntimeSave, ...]:
+    return tuple(
+        runtime_save
+        for runtime_save in resolve_sentinel_runtime_saves(status)
+        if runtime_save.app_id == app_id
     )

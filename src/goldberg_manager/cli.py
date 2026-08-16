@@ -35,6 +35,7 @@ from .emu_config import (
     EmuConfigSummary,
     import_generated_achievements,
     read_generated_emu_summary,
+    read_installed_achievements_status,
     run_generate_emu_config,
 )
 from .generators import generate_game_steam_interfaces
@@ -3262,6 +3263,67 @@ def goldberg_game_assistant_menu(
                 if generator_ready
                 else "[yellow]⚠ Não configurado[/yellow]"
             ),
+        )
+
+        steam_settings_directory = get_steam_settings_directory(game)
+
+        try:
+            installed_achievements = read_installed_achievements_status(
+                steam_settings_directory
+            )
+
+        except EmuConfigError:
+            achievements_status = "[red]✗ achievements.json inválido[/red]"
+
+        else:
+            if installed_achievements.installed:
+                achievements_status = (
+                    "[green]✓ "
+                    f"{installed_achievements.achievements_count} "
+                    "instalados[/green]"
+                )
+
+            else:
+                generated_achievements = 0
+
+                if (
+                    generator_ready
+                    and status.app_id_configured
+                    and status.app_id is not None
+                ):
+                    try:
+                        generated_summary = read_generated_emu_summary(
+                            generator,
+                            status.app_id,
+                        )
+
+                    except (
+                        EmuConfigError,
+                        OSError,
+                        ValueError,
+                    ):
+                        pass
+
+                    else:
+                        if generated_summary.has_achievements:
+                            generated_achievements = (
+                                generated_summary.achievements_count
+                            )
+
+                if generated_achievements:
+                    achievements_status = (
+                        "[yellow]⚠ "
+                        f"{generated_achievements} "
+                        "gerados, não importados"
+                        "[/yellow]"
+                    )
+
+                else:
+                    achievements_status = "[dim]— Não gerados[/dim]"
+
+        table.add_row(
+            "Achievements",
+            achievements_status,
         )
 
         console.print(

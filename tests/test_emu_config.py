@@ -12,6 +12,7 @@ from goldberg_manager.emu_config import (
     get_emu_output_directory,
     import_generated_achievements,
     read_generated_emu_summary,
+    read_installed_achievements_status,
     run_generate_emu_config,
 )
 
@@ -593,6 +594,93 @@ class EmuConfigTests(unittest.TestCase):
             )
 
             self.assertIsNone(result.images_directory)
+
+    def test_reads_installed_achievements_status(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+
+            steam_settings = root / "steam_settings"
+
+            images = steam_settings / "img"
+
+            images.mkdir(parents=True)
+
+            (steam_settings / "achievements.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "name": "ACH_ONE",
+                        },
+                        {
+                            "name": "ACH_TWO",
+                        },
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            (images / "one.jpg").write_bytes(b"image")
+
+            (images / "two.png").write_bytes(b"image")
+
+            status = read_installed_achievements_status(steam_settings)
+
+            self.assertTrue(status.installed)
+
+            self.assertEqual(
+                status.achievements_count,
+                2,
+            )
+
+            self.assertEqual(
+                status.images_count,
+                2,
+            )
+
+            self.assertEqual(
+                status.achievements_file,
+                (steam_settings / "achievements.json"),
+            )
+
+    def test_reads_missing_installed_achievements_as_empty(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            steam_settings = Path(temp_directory) / "steam_settings"
+
+            status = read_installed_achievements_status(steam_settings)
+
+            self.assertFalse(status.installed)
+
+            self.assertEqual(
+                status.achievements_count,
+                0,
+            )
+
+            self.assertEqual(
+                status.images_count,
+                0,
+            )
+
+            self.assertIsNone(status.achievements_file)
+
+    def test_rejects_invalid_installed_achievements_json(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            steam_settings = Path(temp_directory) / "steam_settings"
+
+            steam_settings.mkdir()
+
+            (steam_settings / "achievements.json").write_text(
+                "{invalid json",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(EmuConfigOutputError):
+                read_installed_achievements_status(steam_settings)
 
 
 if __name__ == "__main__":

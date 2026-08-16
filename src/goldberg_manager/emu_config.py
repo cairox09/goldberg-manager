@@ -53,6 +53,18 @@ class AchievementsImportResult:
     images_count: int
 
 
+@dataclass(frozen=True, slots=True)
+class InstalledAchievementsStatus:
+    achievements_file: Path | None
+    achievements_count: int
+    images_directory: Path
+    images_count: int
+
+    @property
+    def installed(self) -> bool:
+        return self.achievements_file is not None and self.achievements_count > 0
+
+
 def _validate_app_id(
     app_id: int,
 ) -> None:
@@ -258,6 +270,32 @@ def _contains_generated_file(
             return True
 
     return False
+
+
+def read_installed_achievements_status(
+    destination_directory: Path,
+) -> InstalledAchievementsStatus:
+    destination_directory = destination_directory.expanduser().resolve()
+
+    achievements_path = destination_directory / "achievements.json"
+
+    images_directory = destination_directory / "img"
+
+    if achievements_path.is_file():
+        achievements_file = achievements_path
+
+        achievements_count = _count_json_entries(achievements_path)
+
+    else:
+        achievements_file = None
+        achievements_count = 0
+
+    return InstalledAchievementsStatus(
+        achievements_file=(achievements_file),
+        achievements_count=(achievements_count),
+        images_directory=(images_directory),
+        images_count=(_count_image_files(images_directory)),
+    )
 
 
 def read_generated_emu_summary(

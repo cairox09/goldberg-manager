@@ -48,6 +48,11 @@ from .scanner import (
     detect_generate_interfaces,
     discover_game_candidates,
 )
+from .sentinel import (
+    SENTINEL_GSE_EMULATOR_ID,
+    detect_sentinel,
+    read_sentinel_config,
+)
 from .settings import (
     SteamUserSettings,
     generate_game_steam_settings,
@@ -660,6 +665,152 @@ def show_games(
     show_game_candidate_details(candidate)
 
 
+def show_sentinel_status() -> None:
+    installation = detect_sentinel()
+
+    status = read_sentinel_config(
+        installation.config_path,
+    )
+
+    table = Table.grid(padding=(0, 2))
+
+    table.add_column(
+        style="bold cyan",
+        no_wrap=True,
+    )
+    table.add_column(style="white")
+
+    table.add_row(
+        "Instalação",
+        (
+            f"[green]✓ Detectado[/green] • {installation.executable}"
+            if installation.installed
+            else "[yellow]⚠ Não detectado[/yellow]"
+        ),
+    )
+
+    if not status.exists:
+        config_status = "[yellow]⚠ Não encontrada[/yellow]"
+    elif not status.valid_json:
+        config_status = "[red]✗ JSON inválido[/red]"
+    elif not status.schema_valid:
+        config_status = "[red]✗ Schema não reconhecido[/red]"
+    else:
+        config_status = "[green]✓ Válida[/green]"
+
+    table.add_row(
+        "Configuração",
+        config_status,
+    )
+
+    table.add_row(
+        "Arquivo",
+        str(installation.config_path),
+    )
+
+    table.add_row(
+        "Dados",
+        (
+            "[green]✓ Encontrados[/green]"
+            if installation.data_exists
+            else "[yellow]⚠ Não encontrados[/yellow]"
+        ),
+    )
+
+    table.add_row(
+        "Estado",
+        (
+            "[green]✓ Encontrado[/green]"
+            if installation.state_exists
+            else "[yellow]⚠ Não encontrado[/yellow]"
+        ),
+    )
+
+    table.add_row(
+        "Prefixos",
+        (
+            f"[green]✓ {len(status.prefix_paths)} configurados[/green]"
+            if status.prefix_paths
+            else "[yellow]⚠ Nenhum configurado[/yellow]"
+        ),
+    )
+
+    table.add_row(
+        "GSE",
+        (
+            "[green]✓ Habilitado[/green]"
+            if status.gse_enabled
+            else "[yellow]⚠ Não habilitado[/yellow]"
+        ),
+    )
+
+    table.add_row(
+        "Goldberg legado",
+        (
+            "[green]✓ Habilitado[/green]"
+            if status.goldberg_enabled
+            else "[dim]— Não habilitado[/dim]"
+        ),
+    )
+
+    gse_notifications = next(
+        (
+            emulator.should_notify
+            for emulator in status.emulators
+            if emulator.id == SENTINEL_GSE_EMULATOR_ID
+        ),
+        None,
+    )
+
+    if gse_notifications is True:
+        notification_status = "[green]✓ Habilitadas[/green]"
+    elif gse_notifications is False:
+        notification_status = "[yellow]⚠ Desabilitadas[/yellow]"
+    else:
+        notification_status = "[dim]— GSE não configurado[/dim]"
+
+    table.add_row(
+        "Notificações GSE",
+        notification_status,
+    )
+
+    if status.gse_watcher_configured:
+        watcher_status = "[green]✓ Pronto para GSE[/green]"
+    elif status.watcher_configured:
+        watcher_status = "[yellow]⚠ Configurado sem GSE[/yellow]"
+    else:
+        watcher_status = "[yellow]⚠ Não configurado[/yellow]"
+
+    table.add_row(
+        "Watcher (config)",
+        watcher_status,
+    )
+
+    table.add_row(
+        "GSE Saves",
+        "[dim]— Caminho ainda não verificado[/dim]",
+    )
+
+    console.print(
+        Panel(
+            table,
+            title="Sentinel",
+            border_style=(
+                "green"
+                if installation.installed and status.gse_watcher_configured
+                else "yellow"
+            ),
+            box=box.ROUNDED,
+        )
+    )
+
+    console.print(
+        "[dim]Somente leitura • "
+        "nenhuma configuração do Sentinel foi alterada • "
+        "o estado acima não confirma se o processo está em execução.[/dim]"
+    )
+
+
 def show_settings(config: AppConfig) -> None:
     while True:
         clear_screen()
@@ -699,6 +850,10 @@ def show_settings(config: AppConfig) -> None:
                 box=box.ROUNDED,
             )
         )
+
+        console.print()
+        show_sentinel_status()
+        console.print()
 
         choice = questionary.select(
             "O que deseja fazer?",

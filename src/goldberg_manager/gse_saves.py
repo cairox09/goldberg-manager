@@ -14,8 +14,6 @@ from .settings import (
 GSE_DEFAULT_SAVES_FOLDER_NAME = "GSE Saves"
 GSE_SAVE_PATH_ENVIRONMENT_VARIABLE = "GseSavePath"
 
-GSE_WINE_APPDATA_RELATIVE_PATH = Path("users/steamuser/AppData/Roaming")
-
 
 @dataclass(frozen=True, slots=True)
 class GseSaveLocation:
@@ -77,6 +75,55 @@ def resolve_gse_linux_data_home(
     user_home = Path.home() if home is None else home
 
     return user_home / ".local" / "share"
+
+
+def discover_wine_appdata_roots(
+    wine_drive_c_paths: tuple[Path, ...],
+) -> tuple[Path, ...]:
+    roots: list[Path] = []
+    seen: set[Path] = set()
+
+    for drive_c in wine_drive_c_paths:
+        users_directory = drive_c / "users"
+
+        discovered_for_drive: list[Path] = []
+
+        try:
+            user_directories = sorted(
+                users_directory.iterdir(),
+                key=lambda path: path.name.casefold(),
+            )
+        except OSError:
+            user_directories = []
+
+        for user_directory in user_directories:
+            if not user_directory.is_dir():
+                continue
+
+            appdata = user_directory / "AppData" / "Roaming"
+
+            if not appdata.is_dir():
+                continue
+
+            discovered_for_drive.append(
+                appdata,
+            )
+
+        if not discovered_for_drive:
+            discovered_for_drive.append(
+                drive_c / "users" / "steamuser" / "AppData" / "Roaming"
+            )
+
+        for appdata in discovered_for_drive:
+            normalized = Path(os.path.normpath(appdata))
+
+            if normalized in seen:
+                continue
+
+            seen.add(normalized)
+            roots.append(normalized)
+
+    return tuple(roots)
 
 
 def _windows_absolute_path(
@@ -247,10 +294,11 @@ def resolve_game_gse_saves(
     source = "saves_folder_name" if snapshot.saves_folder_name else "default"
 
     if windows_game:
-        roots = tuple(
-            drive_c / GSE_WINE_APPDATA_RELATIVE_PATH / saves_folder_name
-            for drive_c in wine_drive_c_paths
+        appdata_roots = discover_wine_appdata_roots(
+            wine_drive_c_paths,
         )
+
+        roots = tuple(appdata / saves_folder_name for appdata in appdata_roots)
 
     else:
         data_home = resolve_gse_linux_data_home(

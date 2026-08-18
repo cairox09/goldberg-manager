@@ -6,6 +6,7 @@ from pathlib import Path
 
 from goldberg_manager.gse_saves import (
     GSE_DEFAULT_SAVES_FOLDER_NAME,
+    discover_wine_appdata_roots,
     resolve_game_gse_saves,
     resolve_gse_linux_data_home,
 )
@@ -46,6 +47,60 @@ def make_game(
 class GseSaveResolutionTests(
     unittest.TestCase,
 ):
+    def test_discovers_non_steamuser_wine_appdata(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+
+            drive_c = root / "prefix" / "drive_c"
+
+            appdata = drive_c / "users" / "davi" / "AppData" / "Roaming"
+
+            appdata.mkdir(
+                parents=True,
+            )
+
+            roots = discover_wine_appdata_roots(
+                (drive_c,),
+            )
+
+            self.assertEqual(
+                roots,
+                (appdata,),
+            )
+
+    def test_windows_global_save_uses_detected_wine_user(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+
+            game = make_game(
+                root / "game",
+            )
+
+            drive_c = root / "prefix" / "drive_c"
+
+            appdata = drive_c / "users" / "custom-user" / "AppData" / "Roaming"
+
+            appdata.mkdir(
+                parents=True,
+            )
+
+            resolution = resolve_game_gse_saves(
+                game,
+                212480,
+                settings=SteamSettingsSnapshot(),
+                environment={},
+                wine_drive_c_paths=(drive_c,),
+            )
+
+            self.assertEqual(
+                resolution.locations[0].root,
+                appdata / "GSE Saves",
+            )
+
     def test_uses_xdg_data_home_for_native_linux(
         self,
     ) -> None:

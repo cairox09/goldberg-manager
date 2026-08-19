@@ -602,6 +602,23 @@ def apply_sentinel_config_repair(
         plan.coverage.save_resolution,
     )
     fresh_plan = plan_sentinel_gse_repair(fresh_coverage)
+    approved_original_candidates = {
+        _normalize_path(prefix) for prefix in plan.candidate_prefixes
+    }
+    fresh_candidates = {
+        _normalize_path(prefix) for prefix in fresh_plan.candidate_prefixes
+    }
+
+    if not fresh_candidates.issubset(approved_original_candidates):
+        return _result(
+            SentinelConfigWriteStatus.CONFLICT,
+            SentinelConfigWriteReason.CONCURRENT_MODIFICATION,
+            config_path,
+            message=(
+                "O plano de reparo mudou e agora contém alterações que não foram "
+                "confirmadas. Revise o plano novamente."
+            ),
+        )
 
     if not fresh_plan.gse_enabled:
         return _result(

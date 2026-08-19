@@ -282,6 +282,81 @@ class SentinelConfigWriterTests(unittest.TestCase):
             self.assertEqual(result.status, SentinelConfigWriteStatus.NO_CHANGE)
             self.assertEqual(backup_paths(config_path), ())
 
+    def test_fresh_plan_cannot_expand_confirmed_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+            config_path = root / "config.json"
+            original = write_config(config_path, make_payload())
+            location_a, candidate_a, _ = make_standard_location(
+                root / "prefixes",
+                "A",
+            )
+            location_b, candidate_b, _ = make_standard_location(
+                root / "prefixes",
+                "B",
+            )
+            original_plan = make_plan(config_path, (location_a,))
+            expanded_plan = make_plan(config_path, (location_a, location_b))
+
+            with (
+                patch(
+                    "goldberg_manager.sentinel_config_writer.plan_sentinel_gse_repair",
+                    return_value=expanded_plan,
+                ),
+                patch(
+                    "goldberg_manager.sentinel_config_writer._write_temporary_file"
+                ) as temporary_writer,
+                patch(
+                    "goldberg_manager.sentinel_config_writer._create_backup"
+                ) as backup_writer,
+            ):
+                result = apply_sentinel_config_repair(original_plan)
+
+            self.assertEqual(result.status, SentinelConfigWriteStatus.CONFLICT)
+            self.assertEqual(
+                result.reason,
+                SentinelConfigWriteReason.CONCURRENT_MODIFICATION,
+            )
+            self.assertEqual(result.added_prefixes, ())
+            self.assertIsNone(result.backup_path)
+            self.assertIn("não foram confirmadas", result.message)
+            self.assertEqual(config_path.read_bytes(), original)
+            self.assertNotIn(str(candidate_a), config_path.read_text(encoding="utf-8"))
+            self.assertNotIn(str(candidate_b), config_path.read_text(encoding="utf-8"))
+            self.assertEqual(backup_paths(config_path), ())
+            temporary_writer.assert_not_called()
+            backup_writer.assert_not_called()
+
+    def test_fresh_plan_can_reduce_confirmed_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+            config_path = root / "config.json"
+            write_config(config_path, make_payload())
+            location_a, candidate_a, _ = make_standard_location(
+                root / "prefixes",
+                "A",
+            )
+            location_b, candidate_b, _ = make_standard_location(
+                root / "prefixes",
+                "B",
+            )
+            original_plan = make_plan(config_path, (location_a, location_b))
+            write_config(
+                config_path,
+                make_payload(prefixes=[{"path": str(candidate_a)}]),
+            )
+
+            result = apply_sentinel_config_repair(original_plan)
+
+            self.assertEqual(result.status, SentinelConfigWriteStatus.APPLIED)
+            self.assertEqual(result.added_prefixes, (candidate_b,))
+            written = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                written["prefixes"],
+                [{"path": str(candidate_a)}, {"path": str(candidate_b)}],
+            )
+            self.assertEqual(len(backup_paths(config_path)), 1)
+
     def test_invalid_config_before_write_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp_directory:
             root = Path(temp_directory)

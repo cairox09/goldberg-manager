@@ -1478,15 +1478,15 @@ def show_game_achievement_status(
         resolution.language,
     )
 
-    if not resolution.runtime_resolved:
-        runtime_status = "[yellow]⚠ Não resolvido[/yellow]"
-    elif resolution.runtime_paths:
+    if resolution.runtime_paths:
         runtime_count = len(resolution.runtime_paths)
         runtime_status = (
             f"[green]✓ {runtime_count} "
             + ("arquivo encontrado" if runtime_count == 1 else "arquivos encontrados")
             + "[/green]"
         )
+    elif not resolution.runtime_resolved:
+        runtime_status = "[yellow]⚠ Não resolvido[/yellow]"
     else:
         runtime_status = "[yellow]⚠ achievements.json ainda não criado[/yellow]"
 
@@ -1538,7 +1538,7 @@ def show_game_achievement_status(
         )
 
     elif resolution.metadata_exists:
-        if not resolution.runtime_resolved:
+        if not resolution.runtime_resolved and not resolution.runtime_paths:
             metadata_report = next(
                 (
                     report
@@ -1752,35 +1752,31 @@ def show_game_gse_status(
                     ),
                 )
 
-        else:
-            location_count = len(
-                save_resolution.locations,
-            )
-
+        elif save_resolution.ambiguous:
             table.add_row(
                 "Resolução",
-                (
-                    f"[green]✓ {location_count} "
-                    + ("caminho" if location_count == 1 else "caminhos")
-                    + "[/green]"
-                ),
+                "[yellow]⚠ Ambígua[/yellow]",
             )
+            table.add_row("Effective root", "[dim]— Não determinado[/dim]")
+        else:
+            table.add_row("Resolução", "[green]✓ Determinada[/green]")
 
-            multiple_locations = location_count > 1
+            for location in save_resolution.effective_locations:
+                table.add_row("Effective root", str(location.root))
 
-            for index, location in enumerate(
-                save_resolution.locations,
-                start=1,
-            ):
+        if save_resolution.locations:
+            multiple_locations = len(save_resolution.locations) > 1
+
+            for index, location in enumerate(save_resolution.locations, start=1):
                 suffix = f" #{index}" if multiple_locations else ""
 
-                table.add_row(
-                    f"Save root{suffix}",
-                    str(location.root),
-                )
+                if multiple_locations:
+                    table.add_row(f"Possible root{suffix}", str(location.root))
 
                 table.add_row(
-                    f"AppID dir{suffix}",
+                    f"Possible AppID dir{suffix}"
+                    if multiple_locations
+                    else "AppID dir",
                     (
                         f"[green]✓ Existe[/green] • {location.app_directory}"
                         if location.app_directory_exists
@@ -1792,7 +1788,11 @@ def show_game_gse_status(
                 )
 
                 table.add_row(
-                    f"achievements.json{suffix}",
+                    (
+                        f"Possible achievements.json{suffix}"
+                        if multiple_locations
+                        else "achievements.json"
+                    ),
                     (
                         f"[green]✓ Encontrado[/green] • {location.achievements_path}"
                         if location.achievements_exists
@@ -1843,33 +1843,49 @@ def _add_sentinel_repair_rows(
     table: Table,
     plan: SentinelRepairPlan,
 ) -> None:
-    if plan.fully_repairable_via_sentinel_config:
-        repairability = "[green]✓ Sim[/green]"
-    elif plan.partially_repairable_via_sentinel_config:
-        repairability = "[yellow]⚠ Parcialmente[/yellow]"
+    if not plan.coverage.effective_save_resolved:
+        save_resolution = plan.coverage.save_resolution
+        unknown = (
+            "[yellow]⚠ Não determinado / ambíguo[/yellow]"
+            if save_resolution is not None and save_resolution.ambiguous
+            else "[dim]— Não determinado[/dim]"
+        )
+        repair_needed = unknown
+        repairability = unknown
+        fully_watched = unknown
+        requires_gse_change = unknown
     else:
-        repairability = "[red]✗ Não[/red]"
+        repair_needed = (
+            "[yellow]⚠ Sim[/yellow]" if plan.needs_repair else "[green]✓ Não[/green]"
+        )
+
+        if plan.fully_repairable_via_sentinel_config:
+            repairability = "[green]✓ Sim[/green]"
+        elif plan.partially_repairable_via_sentinel_config:
+            repairability = "[yellow]⚠ Parcialmente[/yellow]"
+        else:
+            repairability = "[red]✗ Não[/red]"
+
+        fully_watched = (
+            "[green]✓ Sim[/green]"
+            if plan.coverage.fully_watched
+            else "[dim]— Não[/dim]"
+        )
+        requires_gse_change = (
+            "[yellow]⚠ Sim[/yellow]"
+            if plan.requires_gse_change
+            else "[green]✓ Não[/green]"
+        )
 
     table.add_row("", "")
     table.add_row("[bold]Reparo[/bold]", "")
-    table.add_row(
-        "Reparo necessário",
-        "[yellow]⚠ Sim[/yellow]" if plan.needs_repair else "[green]✓ Não[/green]",
-    )
+    table.add_row("Reparo necessário", repair_needed)
     table.add_row(
         "Corrigível apenas no Sentinel",
         repairability,
     )
-    table.add_row(
-        "Fully watched",
-        "[green]✓ Sim[/green]" if plan.coverage.fully_watched else "[dim]— Não[/dim]",
-    )
-    table.add_row(
-        "Requer mudança no GSE",
-        "[yellow]⚠ Sim[/yellow]"
-        if plan.requires_gse_change
-        else "[green]✓ Não[/green]",
-    )
+    table.add_row("Fully watched", fully_watched)
+    table.add_row("Requer mudança no GSE", requires_gse_change)
     table.add_row(
         "Candidate prefixes",
         (
@@ -2111,10 +2127,14 @@ def show_game_sentinel_integration_status(
     )
     table.add_row("", "")
     table.add_row("[bold]Coverage[/bold]", "")
+    save_resolution = coverage.save_resolution
+    save_ambiguous = save_resolution is not None and save_resolution.ambiguous
     table.add_row(
         "Save GSE resolvido",
         (
-            "[green]✓ Sim[/green]"
+            "[yellow]⚠ Ambíguo[/yellow]"
+            if save_ambiguous
+            else "[green]✓ Sim[/green]"
             if coverage.effective_save_resolved
             else "[yellow]⚠ Não[/yellow]"
         ),
@@ -2141,6 +2161,9 @@ def show_game_sentinel_integration_status(
         table.add_row("Fully watched", "[dim]— Não determinado[/dim]")
         table.add_row("Partially watched", "[dim]— Não determinado[/dim]")
         table.add_row("Unwatched", "[dim]— Não determinado[/dim]")
+
+        if save_ambiguous:
+            table.add_row("Effective root", "[dim]— Não determinado[/dim]")
 
     if coverage.location_coverages:
         multiple_locations = len(coverage.location_coverages) > 1
@@ -2176,6 +2199,10 @@ def show_game_sentinel_integration_status(
                     f"Sentinel match{suffix}{match_suffix}",
                     str(matching_root.path),
                 )
+
+    if save_resolution is not None and len(save_resolution.locations) > 1:
+        for index, location in enumerate(save_resolution.locations, start=1):
+            table.add_row(f"Possible root #{index}", str(location.root))
 
     if coverage.gse_save_roots:
         multiple_roots = len(coverage.gse_save_roots) > 1
@@ -2218,7 +2245,18 @@ def show_game_sentinel_integration_status(
     if sentinel_status.configured and not sentinel_status.prefix_paths:
         diagnostics.append("O watcher do Sentinel não possui prefixes configurados.")
 
-    if not coverage.effective_save_resolved:
+    if save_ambiguous:
+        if save_resolution is not None and len(save_resolution.runtime_locations) > 1:
+            diagnostics.append(
+                "Múltiplos runtimes para este AppID foram encontrados; "
+                "o root efetivo permanece ambíguo."
+            )
+        else:
+            diagnostics.append(
+                "Há múltiplos roots Wine possíveis e não foi possível determinar "
+                "com segurança qual é usado por este jogo."
+            )
+    elif not coverage.effective_save_resolved:
         diagnostics.append("O save efetivo usado pelo GSE não pôde ser resolvido.")
     elif coverage.fully_watched:
         diagnostics.append("Todas as locations efetivas do GSE estão cobertas.")
@@ -2318,6 +2356,19 @@ def repair_game_sentinel_integration(
             "habilita automaticamente.[/yellow]"
         )
         console.print("[yellow]Nenhuma alteração foi realizada.[/yellow]")
+        pause()
+        return
+
+    save_resolution = plan.coverage.save_resolution
+
+    if not plan.coverage.effective_save_resolved:
+        unresolved_message = (
+            "O save GSE efetivo não pôde ser determinado com segurança."
+            if save_resolution is not None and save_resolution.ambiguous
+            else "O save GSE efetivo não pôde ser resolvido com segurança."
+        )
+        console.print(f"[yellow]{unresolved_message}[/yellow]")
+        console.print("[yellow]Nenhuma correção automática será proposta.[/yellow]")
         pause()
         return
 

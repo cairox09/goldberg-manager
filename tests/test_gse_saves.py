@@ -6,6 +6,8 @@ from pathlib import Path
 
 from goldberg_manager.gse_saves import (
     GSE_DEFAULT_SAVES_FOLDER_NAME,
+    GseSaveLocation,
+    GseSaveResolution,
     discover_wine_appdata_roots,
     resolve_game_gse_saves,
     resolve_gse_linux_data_home,
@@ -44,9 +46,78 @@ def make_game(
     )
 
 
+def make_resolution(
+    roots: tuple[Path, ...],
+    app_id: int = 212480,
+) -> GseSaveResolution:
+    return GseSaveResolution(
+        source="test",
+        raw_value=None,
+        locations=tuple(
+            GseSaveLocation(source="test", root=root, app_id=app_id) for root in roots
+        ),
+    )
+
+
 class GseSaveResolutionTests(
     unittest.TestCase,
 ):
+    def test_zero_possible_locations_is_unresolved_not_ambiguous(self) -> None:
+        resolution = make_resolution(())
+
+        self.assertFalse(resolution.resolved)
+        self.assertFalse(resolution.ambiguous)
+        self.assertEqual(resolution.runtime_locations, ())
+        self.assertEqual(resolution.effective_locations, ())
+
+    def test_single_possible_location_is_effective_without_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            location_root = Path(temp_directory) / "saves"
+            resolution = make_resolution((location_root,))
+
+            self.assertTrue(resolution.resolved)
+            self.assertFalse(resolution.ambiguous)
+            self.assertEqual(resolution.runtime_locations, ())
+            self.assertEqual(resolution.effective_locations, resolution.locations)
+
+    def test_multiple_possible_locations_without_runtime_are_ambiguous(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+            resolution = make_resolution((root / "first", root / "second"))
+
+            self.assertFalse(resolution.resolved)
+            self.assertTrue(resolution.ambiguous)
+            self.assertEqual(resolution.runtime_locations, ())
+            self.assertEqual(resolution.effective_locations, ())
+
+    def test_single_runtime_selects_effective_location_from_possibilities(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+            resolution = make_resolution((root / "first", root / "second"))
+            selected = resolution.locations[1]
+            selected.app_directory.mkdir(parents=True)
+
+            self.assertTrue(resolution.resolved)
+            self.assertFalse(resolution.ambiguous)
+            self.assertEqual(resolution.runtime_locations, (selected,))
+            self.assertEqual(resolution.effective_locations, (selected,))
+
+    def test_multiple_runtimes_remain_ambiguous(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+            resolution = make_resolution((root / "first", root / "second"))
+
+            for location in resolution.locations:
+                location.app_directory.mkdir(parents=True)
+                location.achievements_path.write_text("{}", encoding="utf-8")
+
+            self.assertFalse(resolution.resolved)
+            self.assertTrue(resolution.ambiguous)
+            self.assertEqual(resolution.runtime_locations, resolution.locations)
+            self.assertEqual(resolution.effective_locations, ())
+            self.assertTrue(resolution.runtime_found)
+            self.assertTrue(resolution.achievements_found)
+
     def test_discovers_non_steamuser_wine_appdata(
         self,
     ) -> None:
@@ -224,6 +295,9 @@ class GseSaveResolutionTests(
                 resolution.locations[0].root,
                 game.steam_api.parent / "portable-saves",
             )
+            self.assertTrue(resolution.resolved)
+            self.assertFalse(resolution.ambiguous)
+            self.assertEqual(resolution.effective_locations, resolution.locations)
 
     def test_maps_windows_c_drive_local_save(
         self,

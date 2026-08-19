@@ -2,11 +2,19 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from io import StringIO
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+
+from rich.console import Console
 
 from goldberg_manager.appid import AppIdCandidate
-from goldberg_manager.cli import resolve_game_gse_runtime
+from goldberg_manager.cli import (
+    GameGseResolution,
+    resolve_game_gse_runtime,
+    show_game_gse_status,
+)
+from goldberg_manager.gse_saves import GseSaveLocation, GseSaveResolution
 from goldberg_manager.scanner import Game
 from goldberg_manager.sentinel import (
     SentinelConfigStatus,
@@ -326,6 +334,52 @@ class GseGameResolutionTests(
             self.assertFalse(
                 resolution.runtime_found,
             )
+
+    def test_status_lists_ambiguous_roots_as_possible(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+            game = make_game(root / "game")
+            status = make_sentinel_status(root / "prefixes")
+            save_resolution = GseSaveResolution(
+                source="default",
+                raw_value=None,
+                locations=tuple(
+                    GseSaveLocation(source="default", root=possible, app_id=212480)
+                    for possible in (root / "first", root / "second")
+                ),
+            )
+            resolution = GameGseResolution(
+                app_id=212480,
+                app_id_confidence=100,
+                app_id_source="steam_appid.txt",
+                save_resolution=save_resolution,
+            )
+            output = StringIO()
+            test_console = Console(file=output, width=200, color_system=None)
+
+            with (
+                patch(
+                    "goldberg_manager.cli.detect_sentinel",
+                    return_value=Mock(config_path=status.path),
+                ),
+                patch("goldberg_manager.cli.read_sentinel_config", return_value=status),
+                patch(
+                    "goldberg_manager.cli.resolve_game_gse_runtime",
+                    return_value=resolution,
+                ),
+                patch("goldberg_manager.cli.console", test_console),
+                patch("goldberg_manager.cli.clear_screen"),
+                patch("goldberg_manager.cli.render_header"),
+                patch("goldberg_manager.cli.pause"),
+            ):
+                show_game_gse_status(game)
+
+            rendered = output.getvalue()
+            self.assertIn("Ambígua", rendered)
+            self.assertIn("Effective root", rendered)
+            self.assertIn("Não determinado", rendered)
+            self.assertIn("Possible root #1", rendered)
+            self.assertIn("Possible root #2", rendered)
 
 
 if __name__ == "__main__":

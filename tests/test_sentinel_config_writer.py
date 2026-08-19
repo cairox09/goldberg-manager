@@ -12,6 +12,7 @@ from goldberg_manager.sentinel import (
     SENTINEL_GOLDBERG_EMULATOR_ID,
     SENTINEL_GSE_EMULATOR_ID,
     SENTINEL_GSE_RELATIVE_PATH,
+    SentinelSaveRoot,
     read_sentinel_config,
 )
 from goldberg_manager.sentinel_config_writer import (
@@ -19,7 +20,11 @@ from goldberg_manager.sentinel_config_writer import (
     SentinelConfigWriteStatus,
     apply_sentinel_config_repair,
 )
-from goldberg_manager.sentinel_integration import resolve_sentinel_gse_coverage
+from goldberg_manager.sentinel_integration import (
+    SentinelGseCoverage,
+    SentinelGseLocationCoverage,
+    resolve_sentinel_gse_coverage,
+)
 from goldberg_manager.sentinel_repair import plan_sentinel_gse_repair
 
 APP_ID = 212480
@@ -107,6 +112,53 @@ def make_plan(
         status,
         APP_ID,
         save_resolution,
+    )
+    return plan_sentinel_gse_repair(coverage)
+
+
+def make_forced_effective_plan(
+    config_path: Path,
+    roots: tuple[Path, ...],
+    *,
+    covered_roots: tuple[Path, ...] = (),
+):
+    status = read_sentinel_config(config_path)
+    locations = tuple(
+        GseSaveLocation(source="test", root=root, app_id=APP_ID) for root in roots
+    )
+    save_resolution = GseSaveResolution(
+        source="test",
+        raw_value=None,
+        locations=locations,
+    )
+    covered = set(covered_roots)
+    matching_roots = {
+        location.root: SentinelSaveRoot(
+            emulator_id=SENTINEL_GSE_EMULATOR_ID,
+            prefix_path=location.root,
+            drive_c=location.root,
+            path=location.root,
+        )
+        for location in locations
+        if location.root in covered
+    }
+    coverage = SentinelGseCoverage(
+        app_id=APP_ID,
+        sentinel_status=status,
+        save_resolution=save_resolution,
+        gse_save_roots=tuple(matching_roots.values()),
+        location_coverages=tuple(
+            SentinelGseLocationCoverage(
+                location=location,
+                matching_roots=(matching_roots[location.root],)
+                if location.root in matching_roots
+                else (),
+            )
+            for location in locations
+        ),
+        runtime_matches=(),
+        gse_runtime_matches=(),
+        legacy_runtime_matches=(),
     )
     return plan_sentinel_gse_repair(coverage)
 
@@ -296,7 +348,10 @@ class SentinelConfigWriterTests(unittest.TestCase):
                 "B",
             )
             original_plan = make_plan(config_path, (location_a,))
-            expanded_plan = make_plan(config_path, (location_a, location_b))
+            expanded_plan = make_forced_effective_plan(
+                config_path,
+                (location_a, location_b),
+            )
 
             with (
                 patch(
@@ -340,13 +395,25 @@ class SentinelConfigWriterTests(unittest.TestCase):
                 root / "prefixes",
                 "B",
             )
-            original_plan = make_plan(config_path, (location_a, location_b))
+            original_plan = make_forced_effective_plan(
+                config_path,
+                (location_a, location_b),
+            )
             write_config(
                 config_path,
                 make_payload(prefixes=[{"path": str(candidate_a)}]),
             )
+            reduced_plan = make_forced_effective_plan(
+                config_path,
+                (location_a, location_b),
+                covered_roots=(location_a,),
+            )
 
-            result = apply_sentinel_config_repair(original_plan)
+            with patch(
+                "goldberg_manager.sentinel_config_writer.plan_sentinel_gse_repair",
+                return_value=reduced_plan,
+            ):
+                result = apply_sentinel_config_repair(original_plan)
 
             self.assertEqual(result.status, SentinelConfigWriteStatus.APPLIED)
             self.assertEqual(result.added_prefixes, (candidate_b,))
@@ -436,10 +503,13 @@ class SentinelConfigWriterTests(unittest.TestCase):
             original = write_config(config_path, make_payload())
             safe, _, _ = make_standard_location(root / "prefixes")
             custom = root / "Sonic" / "saves"
+            plan = make_forced_effective_plan(config_path, (safe, custom))
 
-            result = apply_sentinel_config_repair(
-                make_plan(config_path, (safe, custom))
-            )
+            with patch(
+                "goldberg_manager.sentinel_config_writer.plan_sentinel_gse_repair",
+                return_value=plan,
+            ):
+                result = apply_sentinel_config_repair(plan)
 
             self.assertEqual(result.status, SentinelConfigWriteStatus.REJECTED)
             self.assertEqual(
@@ -455,11 +525,16 @@ class SentinelConfigWriterTests(unittest.TestCase):
             write_config(config_path, make_payload())
             safe, candidate, _ = make_standard_location(root / "prefixes")
             custom = root / "Sonic" / "saves"
+            plan = make_forced_effective_plan(config_path, (safe, custom))
 
-            result = apply_sentinel_config_repair(
-                make_plan(config_path, (safe, custom)),
-                allow_partial=True,
-            )
+            with patch(
+                "goldberg_manager.sentinel_config_writer.plan_sentinel_gse_repair",
+                return_value=plan,
+            ):
+                result = apply_sentinel_config_repair(
+                    plan,
+                    allow_partial=True,
+                )
 
             self.assertEqual(result.status, SentinelConfigWriteStatus.APPLIED)
             self.assertTrue(result.partial)
@@ -482,11 +557,19 @@ class SentinelConfigWriterTests(unittest.TestCase):
                 / "Roaming"
                 / "GSE Saves"
             )
-
-            apply_sentinel_config_repair(
-                make_plan(config_path, (safe, custom, wine_user)),
-                allow_partial=True,
+            plan = make_forced_effective_plan(
+                config_path,
+                (safe, custom, wine_user),
             )
+
+            with patch(
+                "goldberg_manager.sentinel_config_writer.plan_sentinel_gse_repair",
+                return_value=plan,
+            ):
+                apply_sentinel_config_repair(
+                    plan,
+                    allow_partial=True,
+                )
 
             written = json.loads(config_path.read_text(encoding="utf-8"))
             self.assertEqual(written["prefixes"], [{"path": str(candidate)}])
@@ -561,10 +644,25 @@ class SentinelConfigWriterTests(unittest.TestCase):
             write_config(config_path, make_payload())
             safe, candidate, _ = make_standard_location(root / "prefixes")
             custom = root / "Sonic" / "saves"
-            plan = make_plan(config_path, (safe, custom))
+            plan = make_forced_effective_plan(config_path, (safe, custom))
 
-            first = apply_sentinel_config_repair(plan, allow_partial=True)
-            second = apply_sentinel_config_repair(plan, allow_partial=True)
+            with patch(
+                "goldberg_manager.sentinel_config_writer.plan_sentinel_gse_repair",
+                return_value=plan,
+            ):
+                first = apply_sentinel_config_repair(plan, allow_partial=True)
+
+            satisfied_plan = make_forced_effective_plan(
+                config_path,
+                (safe, custom),
+                covered_roots=(safe,),
+            )
+
+            with patch(
+                "goldberg_manager.sentinel_config_writer.plan_sentinel_gse_repair",
+                return_value=satisfied_plan,
+            ):
+                second = apply_sentinel_config_repair(plan, allow_partial=True)
 
             self.assertEqual(first.status, SentinelConfigWriteStatus.APPLIED)
             self.assertTrue(first.partial)

@@ -113,7 +113,9 @@ def resolve_sentinel_gse_coverage(
     normalized_roots = tuple(
         (_normalize_path(save_root.path), save_root) for save_root in gse_save_roots
     )
-    locations = save_resolution.locations if save_resolution is not None else ()
+    locations = (
+        save_resolution.effective_locations if save_resolution is not None else ()
+    )
     location_coverages = tuple(
         SentinelGseLocationCoverage(
             location=location,

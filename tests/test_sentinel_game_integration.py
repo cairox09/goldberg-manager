@@ -28,6 +28,7 @@ from goldberg_manager.sentinel import (
 from goldberg_manager.sentinel_integration import (
     SentinelGseCoverage,
     SentinelGseLocationCoverage,
+    resolve_sentinel_gse_coverage,
 )
 
 APP_ID = 212480
@@ -127,7 +128,11 @@ def make_integration(
     coverage = SentinelGseCoverage(
         app_id=app_id,
         sentinel_status=status,
-        save_resolution=save_resolution if app_id is not None else None,
+        save_resolution=(
+            save_resolution
+            if app_id is not None and len(effective_roots) <= 1
+            else None
+        ),
         gse_save_roots=sentinel_roots,
         location_coverages=location_coverages,
         runtime_matches=runtime_matches,
@@ -190,6 +195,11 @@ def render_integration(
 
     resolver.assert_called_once_with(game, sentinel_status=status)
     return output.getvalue()
+
+
+def rendered_row_value(rendered: str, label: str) -> str:
+    line = next(line for line in rendered.splitlines() if label in line)
+    return line.split(label, 1)[1].strip(" │")
 
 
 class SentinelGameIntegrationTests(unittest.TestCase):
@@ -411,6 +421,113 @@ class SentinelGameIntegrationTests(unittest.TestCase):
                 rendered,
             )
             self.assertNotIn("não é observado", rendered)
+            self.assertIn(
+                "Não determinado",
+                rendered_row_value(rendered, "Reparo necessário"),
+            )
+            self.assertIn(
+                "Não determinado",
+                rendered_row_value(rendered, "Requer mudança no GSE"),
+            )
+
+    def test_ambiguous_cross_prefix_roots_are_listed_only_as_possible(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+            game = make_game(root / "The Last of Us")
+            status = make_status()
+            possible_roots = tuple(
+                root / prefix / user / "AppData" / "Roaming" / "GSE Saves"
+                for prefix in (
+                    "Resident Evil 2",
+                    "Assassins Creed II",
+                    "sideload",
+                    "Sonic All Stars",
+                )
+                for user in ("davica", "steamuser")
+            )
+            save_resolution = GseSaveResolution(
+                source="default",
+                raw_value=None,
+                locations=tuple(
+                    GseSaveLocation(source="default", root=possible, app_id=APP_ID)
+                    for possible in possible_roots
+                ),
+            )
+            coverage = resolve_sentinel_gse_coverage(
+                status,
+                APP_ID,
+                save_resolution,
+            )
+            resolution = GameSentinelIntegrationResolution(
+                gse_resolution=GameGseResolution(
+                    app_id=APP_ID,
+                    app_id_confidence=100,
+                    app_id_source="steam_appid.txt",
+                    save_resolution=save_resolution,
+                ),
+                coverage=coverage,
+            )
+
+            rendered = render_integration(game, status, resolution)
+
+            self.assertTrue(save_resolution.ambiguous)
+            self.assertEqual(coverage.location_coverages, ())
+            self.assertIn("Ambíguo", rendered)
+            self.assertIn("Effective root", rendered)
+            self.assertIn("Não determinado", rendered)
+            self.assertEqual(rendered.count("Effective root"), 1)
+            for index, possible_root in enumerate(possible_roots, start=1):
+                self.assertIn(f"Possible root #{index}", rendered)
+                self.assertIn(str(possible_root), rendered)
+            self.assertIn("Há múltiplos roots Wine possíveis", rendered)
+            self.assertNotIn("save customizado fora do layout observado", rendered)
+            repair_needed = rendered_row_value(rendered, "Reparo necessário")
+            requires_gse_change = rendered_row_value(
+                rendered,
+                "Requer mudança no GSE",
+            )
+            self.assertIn("Não determinado", repair_needed)
+            self.assertIn("ambíguo", repair_needed)
+            self.assertNotEqual(repair_needed, "✓ Não")
+            self.assertIn("Não determinado", requires_gse_change)
+            self.assertNotEqual(requires_gse_change, "✓ Não")
+
+    def test_multiple_runtime_roots_are_reported_as_ambiguous(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+            game = make_game(root / "Invincible")
+            status = make_status()
+            possible_roots = (root / "first", root / "second")
+            save_resolution = GseSaveResolution(
+                source="default",
+                raw_value=None,
+                locations=tuple(
+                    GseSaveLocation(source="default", root=possible, app_id=APP_ID)
+                    for possible in possible_roots
+                ),
+            )
+            for location in save_resolution.locations:
+                location.app_directory.mkdir(parents=True)
+            coverage = resolve_sentinel_gse_coverage(
+                status,
+                APP_ID,
+                save_resolution,
+            )
+            resolution = GameSentinelIntegrationResolution(
+                gse_resolution=GameGseResolution(
+                    app_id=APP_ID,
+                    app_id_confidence=100,
+                    app_id_source="steam_appid.txt",
+                    save_resolution=save_resolution,
+                ),
+                coverage=coverage,
+            )
+
+            rendered = render_integration(game, status, resolution)
+
+            self.assertTrue(save_resolution.ambiguous)
+            self.assertIn("Múltiplos runtimes para este AppID", rendered)
+            self.assertIn("root efetivo permanece ambíguo", rendered)
 
     def test_fully_watched_locations_are_reported(self) -> None:
         with tempfile.TemporaryDirectory() as temp_directory:
@@ -436,6 +553,14 @@ class SentinelGameIntegrationTests(unittest.TestCase):
             self.assertIn(
                 "Todas as locations efetivas do GSE estão cobertas.",
                 rendered,
+            )
+            self.assertEqual(
+                rendered_row_value(rendered, "Reparo necessário"),
+                "✓ Não",
+            )
+            self.assertEqual(
+                rendered_row_value(rendered, "Fully watched"),
+                "✓ Sim",
             )
 
     def test_partial_coverage_lists_each_location(self) -> None:
@@ -494,6 +619,18 @@ class SentinelGameIntegrationTests(unittest.TestCase):
             self.assertIn("save customizado fora do layout observado", rendered)
             self.assertIn("Nenhum seguro", rendered)
             self.assertNotIn("adicione", rendered.casefold())
+            self.assertEqual(
+                rendered_row_value(rendered, "Reparo necessário"),
+                "⚠ Sim",
+            )
+            self.assertEqual(
+                rendered_row_value(rendered, "Corrigível apenas no Sentinel"),
+                "✗ Não",
+            )
+            self.assertEqual(
+                rendered_row_value(rendered, "Requer mudança no GSE"),
+                "⚠ Sim",
+            )
 
     def test_recognized_but_unwatched_is_explicit(self) -> None:
         with tempfile.TemporaryDirectory() as temp_directory:

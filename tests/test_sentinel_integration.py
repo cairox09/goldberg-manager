@@ -273,11 +273,13 @@ class SentinelIntegrationTests(unittest.TestCase):
             self.assertFalse(coverage.recognized_by_sentinel)
             self.assertFalse(coverage.recognized_by_gse_runtime)
 
-    def test_multiple_locations_all_covered(self) -> None:
+    def test_multiple_runtime_locations_remain_ambiguous(self) -> None:
         with tempfile.TemporaryDirectory() as temp_directory:
             root = Path(temp_directory)
             first_status, first_gse_root, _ = make_sentinel_layout(root / "first")
             second_status, second_gse_root, _ = make_sentinel_layout(root / "second")
+            (first_gse_root / str(APP_ID)).mkdir(parents=True)
+            (second_gse_root / str(APP_ID)).mkdir(parents=True)
             status = make_status(
                 first_status.prefix_paths + second_status.prefix_paths,
             )
@@ -291,16 +293,20 @@ class SentinelIntegrationTests(unittest.TestCase):
                 save_resolution,
             )
 
-            self.assertTrue(coverage.fully_watched)
+            self.assertTrue(save_resolution.ambiguous)
+            self.assertFalse(coverage.effective_save_resolved)
+            self.assertFalse(coverage.fully_watched)
             self.assertFalse(coverage.partially_watched)
             self.assertFalse(coverage.unwatched)
-            self.assertEqual(coverage.covered_locations, save_resolution.locations)
+            self.assertEqual(coverage.effective_locations, ())
+            self.assertEqual(coverage.covered_locations, ())
 
-    def test_multiple_locations_partially_covered(self) -> None:
+    def test_single_runtime_among_possibilities_is_effective_and_covered(self) -> None:
         with tempfile.TemporaryDirectory() as temp_directory:
             root = Path(temp_directory)
             status, gse_root, _ = make_sentinel_layout(root)
             custom_root = root / "game" / "saves"
+            (gse_root / str(APP_ID)).mkdir(parents=True)
             save_resolution = make_save_resolution((gse_root, custom_root))
 
             coverage = resolve_sentinel_gse_coverage(
@@ -309,24 +315,27 @@ class SentinelIntegrationTests(unittest.TestCase):
                 save_resolution,
             )
 
-            self.assertFalse(coverage.fully_watched)
-            self.assertTrue(coverage.partially_watched)
+            self.assertTrue(save_resolution.resolved)
+            self.assertFalse(save_resolution.ambiguous)
+            self.assertEqual(
+                save_resolution.effective_locations,
+                (save_resolution.locations[0],),
+            )
+            self.assertTrue(coverage.fully_watched)
+            self.assertFalse(coverage.partially_watched)
             self.assertFalse(coverage.unwatched)
             self.assertEqual(
                 coverage.covered_locations,
                 (save_resolution.locations[0],),
             )
-            self.assertEqual(
-                coverage.uncovered_locations,
-                (save_resolution.locations[1],),
-            )
+            self.assertEqual(coverage.uncovered_locations, ())
 
-    def test_multiple_locations_none_covered(self) -> None:
+    def test_candidate_only_possible_roots_are_not_effective_coverage(self) -> None:
         with tempfile.TemporaryDirectory() as temp_directory:
             root = Path(temp_directory)
-            status, _, _ = make_sentinel_layout(root)
+            status, gse_root, _ = make_sentinel_layout(root)
             save_resolution = make_save_resolution(
-                (root / "game-a" / "saves", root / "game-b" / "saves"),
+                (gse_root, root / "other-game" / "saves"),
             )
 
             coverage = resolve_sentinel_gse_coverage(
@@ -335,11 +344,14 @@ class SentinelIntegrationTests(unittest.TestCase):
                 save_resolution,
             )
 
+            self.assertTrue(save_resolution.ambiguous)
+            self.assertFalse(coverage.effective_save_resolved)
             self.assertFalse(coverage.effective_save_watched)
             self.assertFalse(coverage.fully_watched)
             self.assertFalse(coverage.partially_watched)
-            self.assertTrue(coverage.unwatched)
-            self.assertEqual(coverage.uncovered_locations, save_resolution.locations)
+            self.assertFalse(coverage.unwatched)
+            self.assertEqual(coverage.location_coverages, ())
+            self.assertEqual(coverage.uncovered_locations, ())
 
     def test_lexically_equivalent_paths_are_covered(self) -> None:
         with tempfile.TemporaryDirectory() as temp_directory:

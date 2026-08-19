@@ -296,6 +296,27 @@ class AchievementGameResolutionTests(unittest.TestCase):
                 tuple(report.unlocked for report in resolution.reports),
                 (1, 1),
             )
+            self.assertFalse(resolution.runtime_resolved)
+
+            output = StringIO()
+            test_console = Console(file=output, width=160, color_system=None)
+
+            with (
+                patch(
+                    "goldberg_manager.cli.resolve_game_achievement_progress",
+                    return_value=resolution,
+                ),
+                patch("goldberg_manager.cli.console", test_console),
+                patch("goldberg_manager.cli.clear_screen"),
+                patch("goldberg_manager.cli.render_header"),
+                patch("goldberg_manager.cli.pause"),
+            ):
+                show_game_achievement_status(game)
+
+            rendered = output.getvalue()
+            self.assertIn("2 arquivos encontrados", rendered)
+            self.assertIn("Runtime #1", rendered)
+            self.assertIn("Runtime #2", rendered)
 
     def test_records_invalid_runtime_without_raising(self) -> None:
         with tempfile.TemporaryDirectory() as temp_directory:

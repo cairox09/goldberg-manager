@@ -16,6 +16,7 @@ from goldberg_manager.sentinel import (
 from goldberg_manager.sentinel_integration import (
     SentinelGseCoverage,
     SentinelGseLocationCoverage,
+    resolve_sentinel_gse_coverage,
 )
 from goldberg_manager.sentinel_repair import (
     SentinelRepairConfigState,
@@ -172,6 +173,9 @@ class SentinelRepairTests(unittest.TestCase):
 
         plan = plan_sentinel_gse_repair(make_coverage((root,)))
 
+        assert plan.coverage.save_resolution is not None
+        self.assertTrue(plan.coverage.save_resolution.resolved)
+        self.assertFalse(plan.coverage.save_resolution.ambiguous)
         self.assertEqual(
             plan.location_plans[0].kind,
             SentinelRepairKind.UNSUPPORTED_CUSTOM_SAVE_ROOT,
@@ -209,6 +213,48 @@ class SentinelRepairTests(unittest.TestCase):
         self.assertFalse(plan.needs_repair)
         self.assertFalse(plan.repairable_via_sentinel_config)
         self.assertFalse(plan.requires_gse_change)
+
+    def test_ambiguous_cross_prefix_roots_do_not_produce_repair(self) -> None:
+        roots = (
+            Path("/prefixes/Resident Evil 2/drive_c")
+            / "users"
+            / "davica"
+            / "AppData"
+            / "Roaming"
+            / "GSE Saves",
+            Path("/prefixes/Assassins Creed II/drive_c")
+            / "users"
+            / "steamuser"
+            / "AppData"
+            / "Roaming"
+            / "GSE Saves",
+        )
+        save_resolution = GseSaveResolution(
+            source="default",
+            raw_value=None,
+            locations=tuple(
+                GseSaveLocation(source="default", root=root, app_id=APP_ID)
+                for root in roots
+            ),
+        )
+        coverage = resolve_sentinel_gse_coverage(
+            make_status(),
+            APP_ID,
+            save_resolution,
+        )
+
+        plan = plan_sentinel_gse_repair(coverage)
+
+        self.assertTrue(save_resolution.ambiguous)
+        self.assertFalse(coverage.effective_save_resolved)
+        self.assertFalse(coverage.unwatched)
+        self.assertFalse(plan.needs_repair)
+        self.assertFalse(plan.requires_gse_change)
+        self.assertEqual(plan.candidate_prefixes, ())
+        self.assertEqual(
+            plan.location_plans[0].kind,
+            SentinelRepairKind.UNRESOLVED,
+        )
 
     def test_invalid_json_blocks_candidate_prefixes(self) -> None:
         status = make_status(valid_json=False, schema_valid=False)
@@ -434,6 +480,9 @@ class SentinelRepairTests(unittest.TestCase):
 
         plan = plan_sentinel_gse_repair(coverage)
 
+        assert coverage.save_resolution is not None
+        self.assertTrue(coverage.save_resolution.resolved)
+        self.assertFalse(coverage.save_resolution.ambiguous)
         self.assertTrue(plan.needs_repair)
         self.assertFalse(plan.has_safe_prefix_additions)
         self.assertFalse(plan.fully_repairable_via_sentinel_config)

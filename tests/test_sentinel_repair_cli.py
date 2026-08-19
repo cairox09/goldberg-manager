@@ -30,6 +30,7 @@ from goldberg_manager.sentinel_config_writer import (
 from goldberg_manager.sentinel_integration import (
     SentinelGseCoverage,
     SentinelGseLocationCoverage,
+    resolve_sentinel_gse_coverage,
 )
 from goldberg_manager.sentinel_repair import plan_sentinel_gse_repair
 
@@ -111,7 +112,7 @@ def make_plan(
     coverage = SentinelGseCoverage(
         app_id=APP_ID,
         sentinel_status=sentinel_status,
-        save_resolution=save_resolution,
+        save_resolution=save_resolution if len(roots) <= 1 else None,
         gse_save_roots=tuple(matching_roots.values()),
         location_coverages=tuple(
             SentinelGseLocationCoverage(
@@ -150,6 +151,11 @@ def render_result(result: SentinelConfigWriteResult) -> str:
         show_sentinel_config_write_result(result)
 
     return output.getvalue()
+
+
+def rendered_row_value(rendered: str, label: str) -> str:
+    line = next(line for line in rendered.splitlines() if label in line)
+    return line.split(label, 1)[1].strip(" │")
 
 
 def run_repair(
@@ -224,6 +230,14 @@ class SentinelRepairCliTests(unittest.TestCase):
             rendered, _, writer, confirm = run_repair(game, plan)
 
             self.assertIn("Nenhuma correção é necessária", rendered)
+            self.assertEqual(
+                rendered_row_value(rendered, "Reparo necessário"),
+                "✓ Não",
+            )
+            self.assertEqual(
+                rendered_row_value(rendered, "Fully watched"),
+                "✓ Sim",
+            )
             confirm.assert_not_called()
             writer.assert_not_called()
 
@@ -281,6 +295,78 @@ class SentinelRepairCliTests(unittest.TestCase):
             self.assertIn("save customizado fora do layout observado", rendered)
             self.assertIn("Requer mudança no GSE", rendered)
             self.assertIn("Nenhum seguro", rendered)
+            self.assertEqual(
+                rendered_row_value(rendered, "Reparo necessário"),
+                "⚠ Sim",
+            )
+            self.assertEqual(
+                rendered_row_value(rendered, "Requer mudança no GSE"),
+                "⚠ Sim",
+            )
+            confirm.assert_not_called()
+            writer.assert_not_called()
+
+    def test_ambiguous_resolution_does_not_confirm_or_call_writer(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory)
+            game = make_game(root / "game")
+            save_resolution = GseSaveResolution(
+                source="default",
+                raw_value=None,
+                locations=tuple(
+                    GseSaveLocation(source="default", root=possible, app_id=APP_ID)
+                    for possible in (
+                        root / "Resident Evil 2" / "GSE Saves",
+                        root / "Assassins Creed II" / "GSE Saves",
+                    )
+                ),
+            )
+            coverage = resolve_sentinel_gse_coverage(
+                make_status(),
+                APP_ID,
+                save_resolution,
+            )
+            plan = plan_sentinel_gse_repair(coverage)
+
+            rendered, _, writer, confirm = run_repair(game, plan)
+
+            self.assertTrue(save_resolution.ambiguous)
+            self.assertFalse(plan.needs_repair)
+            self.assertFalse(plan.requires_gse_change)
+            self.assertEqual(plan.candidate_prefixes, ())
+            self.assertIn(
+                "save GSE efetivo não pôde ser determinado com segurança",
+                rendered,
+            )
+            self.assertIn("Nenhuma correção automática", rendered)
+            self.assertIn(
+                "Não determinado",
+                rendered_row_value(rendered, "Reparo necessário"),
+            )
+            self.assertIn(
+                "Não determinado",
+                rendered_row_value(rendered, "Requer mudança no GSE"),
+            )
+            confirm.assert_not_called()
+            writer.assert_not_called()
+
+    def test_unresolved_without_locations_does_not_claim_no_repair(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            game = make_game(Path(temp_directory))
+            plan = make_plan(())
+
+            rendered, _, writer, confirm = run_repair(game, plan)
+
+            save_resolution = plan.coverage.save_resolution
+            assert save_resolution is not None
+            self.assertFalse(save_resolution.ambiguous)
+            self.assertFalse(plan.coverage.effective_save_resolved)
+            self.assertIn(
+                "save GSE efetivo não pôde ser resolvido com segurança",
+                rendered,
+            )
+            self.assertIn("Nenhuma correção automática será proposta", rendered)
+            self.assertNotIn("Nenhuma correção é necessária", rendered)
             confirm.assert_not_called()
             writer.assert_not_called()
 
@@ -297,6 +383,14 @@ class SentinelRepairCliTests(unittest.TestCase):
 
             self.assertIn("Nenhum prefix existente será removido", rendered)
             self.assertIn("backup será criado automaticamente", rendered)
+            self.assertEqual(
+                rendered_row_value(rendered, "Reparo necessário"),
+                "⚠ Sim",
+            )
+            self.assertEqual(
+                rendered_row_value(rendered, "Corrigível apenas no Sentinel"),
+                "✓ Sim",
+            )
             self.assertFalse(confirm.call_args.kwargs["default"])
             self.assertNotIn("parcial", confirm.call_args.args[0].casefold())
             self.assertIn("cancelada", rendered)

@@ -40,6 +40,10 @@ from .emu_config import (
     run_generate_emu_config,
 )
 from .generators import generate_game_steam_interfaces
+from .gse_saves import (
+    GseSaveResolution,
+    resolve_game_gse_saves,
+)
 from .scanner import (
     Game,
     GameCandidate,
@@ -53,6 +57,7 @@ from .sentinel import (
     SentinelConfigStatus,
     SentinelRuntimeSave,
     detect_sentinel,
+    discover_sentinel_drive_c_paths,
     read_sentinel_config,
     resolve_sentinel_runtime_saves,
     resolve_sentinel_save_roots,
@@ -115,6 +120,28 @@ class GameSentinelResolution:
     @property
     def runtime_found(self) -> bool:
         return bool(self.runtime_saves)
+
+
+@dataclass(frozen=True, slots=True)
+class GameGseResolution:
+    app_id: int | None
+    app_id_confidence: int | None
+    app_id_source: str | None
+    save_resolution: GseSaveResolution | None
+
+    @property
+    def resolved(self) -> bool:
+        return self.save_resolution is not None and self.save_resolution.resolved
+
+    @property
+    def runtime_found(self) -> bool:
+        return self.save_resolution is not None and self.save_resolution.runtime_found
+
+    @property
+    def achievements_found(self) -> bool:
+        return (
+            self.save_resolution is not None and self.save_resolution.achievements_found
+        )
 
 
 def get_next_guided_step(
@@ -192,6 +219,71 @@ def resolve_game_sentinel_runtime(
         app_id_source=best_candidate.source,
         runtime_saves=(),
     )
+
+
+def resolve_game_gse_runtime(
+    game: Game,
+    *,
+    sentinel_status: SentinelConfigStatus | None = None,
+) -> GameGseResolution:
+    if sentinel_status is None:
+        installation = detect_sentinel()
+
+        sentinel_status = read_sentinel_config(
+            installation.config_path,
+        )
+
+    discovered_drives = discover_sentinel_drive_c_paths(
+        sentinel_status.prefix_paths,
+    )
+
+    wine_drive_c_paths = tuple(discovered.drive_c for discovered in discovered_drives)
+
+    app_id_candidates = resolve_local_appid(game)
+
+    if not app_id_candidates:
+        return GameGseResolution(
+            app_id=None,
+            app_id_confidence=None,
+            app_id_source=None,
+            save_resolution=None,
+        )
+
+    settings = read_game_steam_settings(game)
+
+    fallback: GameGseResolution | None = None
+    runtime_match: GameGseResolution | None = None
+
+    for candidate in app_id_candidates:
+        save_resolution = resolve_game_gse_saves(
+            game,
+            candidate.app_id,
+            settings=settings,
+            wine_drive_c_paths=wine_drive_c_paths,
+        )
+
+        current = GameGseResolution(
+            app_id=candidate.app_id,
+            app_id_confidence=candidate.score,
+            app_id_source=candidate.source,
+            save_resolution=save_resolution,
+        )
+
+        if fallback is None:
+            fallback = current
+
+        if save_resolution.achievements_found:
+            return current
+
+        if save_resolution.runtime_found and runtime_match is None:
+            runtime_match = current
+
+    if runtime_match is not None:
+        return runtime_match
+
+    assert fallback is not None
+
+    return fallback
 
 
 class MissingDependencyError(RuntimeError):
@@ -458,6 +550,7 @@ def show_game_details(game) -> None:
         choice = questionary.select(
             "O que deseja fazer?",
             choices=[
+                "Verificar GSE saves",
                 "Verificar Sentinel / achievements",
                 "Fazer backup da Steam API",
                 "Restaurar Steam API original",
@@ -465,7 +558,10 @@ def show_game_details(game) -> None:
             ],
         ).ask()
 
-        if choice == "Verificar Sentinel / achievements":
+        if choice == "Verificar GSE saves":
+            show_game_gse_status(game)
+
+        elif choice == "Verificar Sentinel / achievements":
             show_game_sentinel_status(game)
 
         elif choice == "Fazer backup da Steam API":
@@ -1053,6 +1149,185 @@ def show_game_sentinel_status(
         "[dim]"
         "Somente leitura • "
         "nenhum arquivo do Sentinel ou do GSE foi alterado."
+        "[/dim]"
+    )
+
+    pause()
+
+
+def show_game_gse_status(
+    game: Game,
+) -> None:
+    clear_screen()
+    render_header()
+
+    installation = detect_sentinel()
+
+    sentinel_status = read_sentinel_config(
+        installation.config_path,
+    )
+
+    resolution = resolve_game_gse_runtime(
+        game,
+        sentinel_status=sentinel_status,
+    )
+
+    table = Table.grid(
+        padding=(0, 2),
+    )
+
+    table.add_column(
+        style="bold cyan",
+        no_wrap=True,
+    )
+
+    table.add_column(
+        style="white",
+    )
+
+    table.add_row(
+        "Jogo",
+        game.name,
+    )
+
+    if resolution.app_id is None:
+        table.add_row(
+            "AppID",
+            "[yellow]⚠ Não resolvido[/yellow]",
+        )
+
+        table.add_row(
+            "GSE save",
+            "[yellow]⚠ Não foi possível resolver[/yellow]",
+        )
+
+    else:
+        app_id_details: list[str] = []
+
+        if resolution.app_id_source is not None:
+            app_id_details.append(
+                resolution.app_id_source,
+            )
+
+        if resolution.app_id_confidence is not None:
+            app_id_details.append(f"{resolution.app_id_confidence}%")
+
+        app_id_metadata = " • " + " • ".join(app_id_details) if app_id_details else ""
+
+        table.add_row(
+            "AppID",
+            (f"[green]✓ {resolution.app_id}[/green]{app_id_metadata}"),
+        )
+
+        save_resolution = resolution.save_resolution
+
+        assert save_resolution is not None
+
+        source_labels = {
+            "GseSavePath": "GseSavePath",
+            "local_save_path": "local_save_path",
+            "saves_folder_name": "saves_folder_name",
+            "default": "GSE padrão",
+        }
+
+        source_label = source_labels.get(
+            save_resolution.source,
+            save_resolution.source,
+        )
+
+        table.add_row(
+            "Origem do save",
+            source_label,
+        )
+
+        if save_resolution.raw_value is not None:
+            table.add_row(
+                "Valor configurado",
+                save_resolution.raw_value,
+            )
+
+        if not save_resolution.locations:
+            table.add_row(
+                "Resolução",
+                "[yellow]⚠ Caminho não resolvido[/yellow]",
+            )
+
+            if (
+                game.steam_api.suffix.casefold() == ".dll"
+                and not sentinel_status.prefix_paths
+            ):
+                table.add_row(
+                    "Motivo provável",
+                    (
+                        "[yellow]Nenhum prefixo Wine/Proton "
+                        "foi encontrado no Sentinel.[/yellow]"
+                    ),
+                )
+
+        else:
+            location_count = len(
+                save_resolution.locations,
+            )
+
+            table.add_row(
+                "Resolução",
+                (
+                    f"[green]✓ {location_count} "
+                    + ("caminho" if location_count == 1 else "caminhos")
+                    + "[/green]"
+                ),
+            )
+
+            multiple_locations = location_count > 1
+
+            for index, location in enumerate(
+                save_resolution.locations,
+                start=1,
+            ):
+                suffix = f" #{index}" if multiple_locations else ""
+
+                table.add_row(
+                    f"Save root{suffix}",
+                    str(location.root),
+                )
+
+                table.add_row(
+                    f"AppID dir{suffix}",
+                    (
+                        f"[green]✓ Existe[/green] • {location.app_directory}"
+                        if location.app_directory_exists
+                        else (
+                            "[yellow]⚠ Ainda não criado[/yellow] • "
+                            f"{location.app_directory}"
+                        )
+                    ),
+                )
+
+                table.add_row(
+                    f"achievements.json{suffix}",
+                    (
+                        f"[green]✓ Encontrado[/green] • {location.achievements_path}"
+                        if location.achievements_exists
+                        else (
+                            "[yellow]⚠ Ainda não criado[/yellow] • "
+                            f"{location.achievements_path}"
+                        )
+                    ),
+                )
+
+    console.print(
+        Panel(
+            table,
+            title="GSE • Resolução de saves",
+            border_style=("green" if resolution.runtime_found else "yellow"),
+            box=box.ROUNDED,
+        )
+    )
+
+    console.print(
+        "[dim]"
+        "Somente leitura • "
+        "nenhum save ou arquivo de configuração foi alterado."
         "[/dim]"
     )
 

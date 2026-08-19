@@ -11,6 +11,11 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from .achievements import (
+    AchievementDataError,
+    AchievementReport,
+    read_achievement_report,
+)
 from .appid import (
     SteamStoreSearchError,
     get_game_search_query,
@@ -142,6 +147,30 @@ class GameGseResolution:
         return (
             self.save_resolution is not None and self.save_resolution.achievements_found
         )
+
+
+@dataclass(frozen=True, slots=True)
+class AchievementReadError:
+    path: Path
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class GameAchievementResolution:
+    gse_resolution: GameGseResolution
+    metadata_path: Path
+    language: str
+    runtime_paths: tuple[Path, ...]
+    reports: tuple[AchievementReport, ...]
+    errors: tuple[AchievementReadError, ...]
+
+    @property
+    def metadata_exists(self) -> bool:
+        return self.metadata_path.is_file()
+
+    @property
+    def runtime_resolved(self) -> bool:
+        return self.gse_resolution.resolved
 
 
 def get_next_guided_step(
@@ -284,6 +313,99 @@ def resolve_game_gse_runtime(
     assert fallback is not None
 
     return fallback
+
+
+def resolve_game_achievement_progress(
+    game: Game,
+    *,
+    sentinel_status: SentinelConfigStatus | None = None,
+) -> GameAchievementResolution:
+    gse_resolution = resolve_game_gse_runtime(
+        game,
+        sentinel_status=sentinel_status,
+    )
+    settings = read_game_steam_settings(game)
+    language = settings.language or "english"
+    metadata_path = game.steam_api.parent / "steam_settings" / "achievements.json"
+    save_resolution = gse_resolution.save_resolution
+    runtime_paths = (
+        tuple(
+            location.achievements_path
+            for location in save_resolution.locations
+            if location.achievements_exists
+        )
+        if save_resolution is not None
+        else ()
+    )
+
+    if not metadata_path.is_file():
+        return GameAchievementResolution(
+            gse_resolution=gse_resolution,
+            metadata_path=metadata_path,
+            language=language,
+            runtime_paths=runtime_paths,
+            reports=(),
+            errors=(),
+        )
+
+    try:
+        metadata_report = read_achievement_report(
+            metadata_path,
+            language=language,
+        )
+    except AchievementDataError as error:
+        return GameAchievementResolution(
+            gse_resolution=gse_resolution,
+            metadata_path=metadata_path,
+            language=language,
+            runtime_paths=runtime_paths,
+            reports=(),
+            errors=(
+                AchievementReadError(
+                    path=metadata_path,
+                    message=str(error),
+                ),
+            ),
+        )
+
+    if not runtime_paths:
+        return GameAchievementResolution(
+            gse_resolution=gse_resolution,
+            metadata_path=metadata_path,
+            language=language,
+            runtime_paths=(),
+            reports=(metadata_report,),
+            errors=(),
+        )
+
+    reports: list[AchievementReport] = []
+    errors: list[AchievementReadError] = []
+
+    for runtime_path in runtime_paths:
+        try:
+            reports.append(
+                read_achievement_report(
+                    metadata_path,
+                    runtime_path,
+                    language=language,
+                )
+            )
+        except AchievementDataError as error:
+            errors.append(
+                AchievementReadError(
+                    path=runtime_path,
+                    message=str(error),
+                )
+            )
+
+    return GameAchievementResolution(
+        gse_resolution=gse_resolution,
+        metadata_path=metadata_path,
+        language=language,
+        runtime_paths=runtime_paths,
+        reports=tuple(reports),
+        errors=tuple(errors),
+    )
 
 
 class MissingDependencyError(RuntimeError):
@@ -550,18 +672,22 @@ def show_game_details(game) -> None:
         choice = questionary.select(
             "O que deseja fazer?",
             choices=[
+                "Verificar achievements / progresso",
                 "Verificar GSE saves",
-                "Verificar Sentinel / achievements",
+                "Verificar Sentinel",
                 "Fazer backup da Steam API",
                 "Restaurar Steam API original",
                 "Voltar",
             ],
         ).ask()
 
-        if choice == "Verificar GSE saves":
+        if choice == "Verificar achievements / progresso":
+            show_game_achievement_status(game)
+
+        elif choice == "Verificar GSE saves":
             show_game_gse_status(game)
 
-        elif choice == "Verificar Sentinel / achievements":
+        elif choice == "Verificar Sentinel":
             show_game_sentinel_status(game)
 
         elif choice == "Fazer backup da Steam API":
@@ -1152,6 +1278,301 @@ def show_game_sentinel_status(
         "[/dim]"
     )
 
+    pause()
+
+
+def _achievement_report_table(
+    report: AchievementReport,
+    *,
+    confirmed_runtime: bool,
+) -> Table:
+    table = Table.grid(
+        padding=(0, 2),
+    )
+    table.add_column(
+        style="bold cyan",
+        no_wrap=True,
+    )
+    table.add_column(
+        style="white",
+        justify="right",
+    )
+
+    if report.runtime_path is not None:
+        table.add_row(
+            "Runtime",
+            str(report.runtime_path),
+        )
+
+    table.add_row(
+        "Disponíveis",
+        str(report.total),
+    )
+
+    if confirmed_runtime:
+        table.add_row(
+            "Desbloqueadas",
+            str(report.unlocked),
+        )
+        table.add_row(
+            "Bloqueadas",
+            str(report.locked),
+        )
+        table.add_row(
+            "Parciais",
+            str(report.partial),
+        )
+        table.add_row(
+            "Conclusão",
+            f"{report.completion_percentage:.1f}%",
+        )
+
+    if report.unknown_runtime_names:
+        table.add_row(
+            "Runtime sem metadata",
+            str(len(report.unknown_runtime_names)),
+        )
+
+    return table
+
+
+def show_game_achievement_status(
+    game: Game,
+) -> None:
+    clear_screen()
+    render_header()
+
+    try:
+        resolution = resolve_game_achievement_progress(game)
+    except (
+        AchievementDataError,
+        OSError,
+        ValueError,
+    ) as error:
+        console.print(
+            Panel.fit(
+                "[red]Não foi possível resolver o progresso "
+                f"de achievements.[/red]\n\n{error}",
+                border_style="red",
+                box=box.ROUNDED,
+            )
+        )
+        pause()
+        return
+
+    gse_resolution = resolution.gse_resolution
+    metadata_error = next(
+        (
+            error
+            for error in resolution.errors
+            if error.path == resolution.metadata_path
+        ),
+        None,
+    )
+
+    overview = Table.grid(
+        padding=(0, 2),
+    )
+    overview.add_column(
+        style="bold cyan",
+        no_wrap=True,
+    )
+    overview.add_column(
+        style="white",
+    )
+    overview.add_row(
+        "Jogo",
+        game.name,
+    )
+    overview.add_row(
+        "AppID",
+        (
+            str(gse_resolution.app_id)
+            if gse_resolution.app_id is not None
+            else "[yellow]⚠ Não resolvido[/yellow]"
+        ),
+    )
+
+    if not resolution.metadata_exists:
+        metadata_status = (
+            f"[yellow]⚠ Não encontrado[/yellow] • {resolution.metadata_path}"
+        )
+    elif metadata_error is not None:
+        metadata_status = f"[red]✗ Metadata inválida[/red] • {resolution.metadata_path}"
+    else:
+        metadata_status = f"[green]✓ Encontrado[/green] • {resolution.metadata_path}"
+
+    overview.add_row(
+        "Metadata",
+        metadata_status,
+    )
+    overview.add_row(
+        "Idioma",
+        resolution.language,
+    )
+
+    if not resolution.runtime_resolved:
+        runtime_status = "[yellow]⚠ Não resolvido[/yellow]"
+    elif resolution.runtime_paths:
+        runtime_count = len(resolution.runtime_paths)
+        runtime_status = (
+            f"[green]✓ {runtime_count} "
+            + ("arquivo encontrado" if runtime_count == 1 else "arquivos encontrados")
+            + "[/green]"
+        )
+    else:
+        runtime_status = "[yellow]⚠ achievements.json ainda não criado[/yellow]"
+
+    overview.add_row(
+        "Runtime",
+        runtime_status,
+    )
+
+    if resolution.runtime_resolved and not resolution.runtime_paths:
+        save_resolution = gse_resolution.save_resolution
+
+        assert save_resolution is not None
+
+        multiple_locations = len(save_resolution.locations) > 1
+
+        for index, location in enumerate(
+            save_resolution.locations,
+            start=1,
+        ):
+            suffix = f" #{index}" if multiple_locations else ""
+            overview.add_row(
+                f"Runtime esperado{suffix}",
+                str(location.achievements_path),
+            )
+
+    console.print(
+        Panel(
+            overview,
+            title="Achievements • Progresso",
+            border_style=(
+                "green"
+                if resolution.metadata_exists
+                and metadata_error is None
+                and resolution.runtime_resolved
+                else "yellow"
+            ),
+            box=box.ROUNDED,
+        )
+    )
+
+    if metadata_error is not None:
+        console.print()
+        console.print(
+            Panel.fit(
+                f"[red]Não foi possível ler a metadata.[/red]\n\n{metadata_error.message}",
+                border_style="red",
+                box=box.ROUNDED,
+            )
+        )
+
+    elif resolution.metadata_exists:
+        if not resolution.runtime_resolved:
+            metadata_report = next(
+                (
+                    report
+                    for report in resolution.reports
+                    if report.runtime_path is None
+                ),
+                None,
+            )
+
+            if metadata_report is not None:
+                console.print()
+                console.print(
+                    Panel(
+                        _achievement_report_table(
+                            metadata_report,
+                            confirmed_runtime=False,
+                        ),
+                        title="Achievements • Metadata",
+                        border_style="yellow",
+                        box=box.ROUNDED,
+                    )
+                )
+
+        elif not resolution.runtime_paths:
+            metadata_report = next(
+                (
+                    report
+                    for report in resolution.reports
+                    if report.runtime_path is None
+                ),
+                None,
+            )
+
+            if metadata_report is not None:
+                console.print()
+                console.print(
+                    Panel(
+                        _achievement_report_table(
+                            metadata_report,
+                            confirmed_runtime=True,
+                        ),
+                        title="Achievements",
+                        border_style="yellow",
+                        box=box.ROUNDED,
+                    )
+                )
+
+        else:
+            multiple_runtimes = len(resolution.runtime_paths) > 1
+
+            for index, runtime_path in enumerate(
+                resolution.runtime_paths,
+                start=1,
+            ):
+                report = next(
+                    (
+                        candidate
+                        for candidate in resolution.reports
+                        if candidate.runtime_path == runtime_path
+                    ),
+                    None,
+                )
+                error = next(
+                    (
+                        candidate
+                        for candidate in resolution.errors
+                        if candidate.path == runtime_path
+                    ),
+                    None,
+                )
+                suffix = f" • Runtime #{index}" if multiple_runtimes else ""
+
+                console.print()
+
+                if report is not None:
+                    console.print(
+                        Panel(
+                            _achievement_report_table(
+                                report,
+                                confirmed_runtime=True,
+                            ),
+                            title=f"Achievements{suffix}",
+                            border_style="green",
+                            box=box.ROUNDED,
+                        )
+                    )
+                elif error is not None:
+                    console.print(
+                        Panel.fit(
+                            f"[red]Runtime inválido:[/red] {runtime_path}\n\n"
+                            f"{error.message}",
+                            title=f"Achievements{suffix}",
+                            border_style="red",
+                            box=box.ROUNDED,
+                        )
+                    )
+
+    console.print()
+    console.print(
+        "[dim]Somente leitura • nenhum arquivo de achievements foi alterado.[/dim]"
+    )
     pause()
 
 

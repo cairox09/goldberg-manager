@@ -49,12 +49,30 @@ class GseSaveResolution:
     locations: tuple[GseSaveLocation, ...]
 
     @property
+    def runtime_locations(self) -> tuple[GseSaveLocation, ...]:
+        return tuple(
+            location for location in self.locations if location.app_directory_exists
+        )
+
+    @property
+    def effective_locations(self) -> tuple[GseSaveLocation, ...]:
+        if len(self.locations) == 1:
+            return self.locations
+
+        runtime_locations = self.runtime_locations
+        return runtime_locations if len(runtime_locations) == 1 else ()
+
+    @property
+    def ambiguous(self) -> bool:
+        return len(self.locations) > 1 and len(self.runtime_locations) != 1
+
+    @property
     def resolved(self) -> bool:
-        return bool(self.locations)
+        return bool(self.effective_locations)
 
     @property
     def runtime_found(self) -> bool:
-        return any(location.app_directory_exists for location in self.locations)
+        return bool(self.runtime_locations)
 
     @property
     def achievements_found(self) -> bool:

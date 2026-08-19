@@ -67,6 +67,22 @@ from .sentinel import (
     resolve_sentinel_runtime_saves,
     resolve_sentinel_save_roots,
 )
+from .sentinel_config_writer import (
+    SentinelConfigWriteReason,
+    SentinelConfigWriteResult,
+    SentinelConfigWriteStatus,
+    apply_sentinel_config_repair,
+)
+from .sentinel_integration import (
+    SentinelGseCoverage,
+    resolve_sentinel_gse_coverage,
+)
+from .sentinel_repair import (
+    SentinelRepairConfigState,
+    SentinelRepairKind,
+    SentinelRepairPlan,
+    plan_sentinel_gse_repair,
+)
 from .settings import (
     SteamUserSettings,
     generate_game_steam_settings,
@@ -147,6 +163,12 @@ class GameGseResolution:
         return (
             self.save_resolution is not None and self.save_resolution.achievements_found
         )
+
+
+@dataclass(frozen=True, slots=True)
+class GameSentinelIntegrationResolution:
+    gse_resolution: GameGseResolution
+    coverage: SentinelGseCoverage
 
 
 @dataclass(frozen=True, slots=True)
@@ -313,6 +335,43 @@ def resolve_game_gse_runtime(
     assert fallback is not None
 
     return fallback
+
+
+def resolve_game_sentinel_integration(
+    game: Game,
+    *,
+    sentinel_status: SentinelConfigStatus | None = None,
+) -> GameSentinelIntegrationResolution:
+    if sentinel_status is None:
+        installation = detect_sentinel()
+        sentinel_status = read_sentinel_config(installation.config_path)
+
+    gse_resolution = resolve_game_gse_runtime(
+        game,
+        sentinel_status=sentinel_status,
+    )
+    coverage = resolve_sentinel_gse_coverage(
+        sentinel_status,
+        gse_resolution.app_id,
+        gse_resolution.save_resolution,
+    )
+
+    return GameSentinelIntegrationResolution(
+        gse_resolution=gse_resolution,
+        coverage=coverage,
+    )
+
+
+def resolve_game_sentinel_repair(
+    game: Game,
+    *,
+    sentinel_status: SentinelConfigStatus | None = None,
+) -> SentinelRepairPlan:
+    integration = resolve_game_sentinel_integration(
+        game,
+        sentinel_status=sentinel_status,
+    )
+    return plan_sentinel_gse_repair(integration.coverage)
 
 
 def resolve_game_achievement_progress(
@@ -675,6 +734,8 @@ def show_game_details(game) -> None:
                 "Verificar achievements / progresso",
                 "Verificar GSE saves",
                 "Verificar Sentinel",
+                "Verificar integração Sentinel",
+                "Corrigir integração Sentinel",
                 "Fazer backup da Steam API",
                 "Restaurar Steam API original",
                 "Voltar",
@@ -689,6 +750,12 @@ def show_game_details(game) -> None:
 
         elif choice == "Verificar Sentinel":
             show_game_sentinel_status(game)
+
+        elif choice == "Verificar integração Sentinel":
+            show_game_sentinel_integration_status(game)
+
+        elif choice == "Corrigir integração Sentinel":
+            repair_game_sentinel_integration(game)
 
         elif choice == "Fazer backup da Steam API":
             create_game_backup(game)
@@ -1411,15 +1478,15 @@ def show_game_achievement_status(
         resolution.language,
     )
 
-    if not resolution.runtime_resolved:
-        runtime_status = "[yellow]⚠ Não resolvido[/yellow]"
-    elif resolution.runtime_paths:
+    if resolution.runtime_paths:
         runtime_count = len(resolution.runtime_paths)
         runtime_status = (
             f"[green]✓ {runtime_count} "
             + ("arquivo encontrado" if runtime_count == 1 else "arquivos encontrados")
             + "[/green]"
         )
+    elif not resolution.runtime_resolved:
+        runtime_status = "[yellow]⚠ Não resolvido[/yellow]"
     else:
         runtime_status = "[yellow]⚠ achievements.json ainda não criado[/yellow]"
 
@@ -1471,7 +1538,7 @@ def show_game_achievement_status(
         )
 
     elif resolution.metadata_exists:
-        if not resolution.runtime_resolved:
+        if not resolution.runtime_resolved and not resolution.runtime_paths:
             metadata_report = next(
                 (
                     report
@@ -1685,35 +1752,31 @@ def show_game_gse_status(
                     ),
                 )
 
-        else:
-            location_count = len(
-                save_resolution.locations,
-            )
-
+        elif save_resolution.ambiguous:
             table.add_row(
                 "Resolução",
-                (
-                    f"[green]✓ {location_count} "
-                    + ("caminho" if location_count == 1 else "caminhos")
-                    + "[/green]"
-                ),
+                "[yellow]⚠ Ambígua[/yellow]",
             )
+            table.add_row("Effective root", "[dim]— Não determinado[/dim]")
+        else:
+            table.add_row("Resolução", "[green]✓ Determinada[/green]")
 
-            multiple_locations = location_count > 1
+            for location in save_resolution.effective_locations:
+                table.add_row("Effective root", str(location.root))
 
-            for index, location in enumerate(
-                save_resolution.locations,
-                start=1,
-            ):
+        if save_resolution.locations:
+            multiple_locations = len(save_resolution.locations) > 1
+
+            for index, location in enumerate(save_resolution.locations, start=1):
                 suffix = f" #{index}" if multiple_locations else ""
 
-                table.add_row(
-                    f"Save root{suffix}",
-                    str(location.root),
-                )
+                if multiple_locations:
+                    table.add_row(f"Possible root{suffix}", str(location.root))
 
                 table.add_row(
-                    f"AppID dir{suffix}",
+                    f"Possible AppID dir{suffix}"
+                    if multiple_locations
+                    else "AppID dir",
                     (
                         f"[green]✓ Existe[/green] • {location.app_directory}"
                         if location.app_directory_exists
@@ -1725,7 +1788,11 @@ def show_game_gse_status(
                 )
 
                 table.add_row(
-                    f"achievements.json{suffix}",
+                    (
+                        f"Possible achievements.json{suffix}"
+                        if multiple_locations
+                        else "achievements.json"
+                    ),
                     (
                         f"[green]✓ Encontrado[/green] • {location.achievements_path}"
                         if location.achievements_exists
@@ -1751,6 +1818,666 @@ def show_game_gse_status(
         "nenhum save ou arquivo de configuração foi alterado."
         "[/dim]"
     )
+
+    pause()
+
+
+_SENTINEL_REPAIR_KIND_LABELS = {
+    SentinelRepairKind.ALREADY_COVERED: "já coberta",
+    SentinelRepairKind.ADD_PREFIX: "prefix pode ser adicionado com segurança",
+    SentinelRepairKind.PREFIX_ALREADY_CONFIGURED: (
+        "prefix já configurado; inconsistência exige diagnóstico"
+    ),
+    SentinelRepairKind.UNSUPPORTED_CUSTOM_SAVE_ROOT: (
+        "save customizado fora do layout observado pelo Sentinel; "
+        "não é suportado pelo modelo atual"
+    ),
+    SentinelRepairKind.UNSUPPORTED_WINE_USER: (
+        "usuário Wine diferente de steamuser não é suportado pelo Sentinel atual"
+    ),
+    SentinelRepairKind.UNRESOLVED: "save não resolvido",
+}
+
+
+def _add_sentinel_repair_rows(
+    table: Table,
+    plan: SentinelRepairPlan,
+) -> None:
+    if not plan.coverage.effective_save_resolved:
+        save_resolution = plan.coverage.save_resolution
+        unknown = (
+            "[yellow]⚠ Não determinado / ambíguo[/yellow]"
+            if save_resolution is not None and save_resolution.ambiguous
+            else "[dim]— Não determinado[/dim]"
+        )
+        repair_needed = unknown
+        repairability = unknown
+        fully_watched = unknown
+        requires_gse_change = unknown
+    else:
+        repair_needed = (
+            "[yellow]⚠ Sim[/yellow]" if plan.needs_repair else "[green]✓ Não[/green]"
+        )
+
+        if plan.fully_repairable_via_sentinel_config:
+            repairability = "[green]✓ Sim[/green]"
+        elif plan.partially_repairable_via_sentinel_config:
+            repairability = "[yellow]⚠ Parcialmente[/yellow]"
+        else:
+            repairability = "[red]✗ Não[/red]"
+
+        fully_watched = (
+            "[green]✓ Sim[/green]"
+            if plan.coverage.fully_watched
+            else "[dim]— Não[/dim]"
+        )
+        requires_gse_change = (
+            "[yellow]⚠ Sim[/yellow]"
+            if plan.requires_gse_change
+            else "[green]✓ Não[/green]"
+        )
+
+    table.add_row("", "")
+    table.add_row("[bold]Reparo[/bold]", "")
+    table.add_row("Reparo necessário", repair_needed)
+    table.add_row(
+        "Corrigível apenas no Sentinel",
+        repairability,
+    )
+    table.add_row("Fully watched", fully_watched)
+    table.add_row("Requer mudança no GSE", requires_gse_change)
+    table.add_row(
+        "Candidate prefixes",
+        (
+            "\n".join(str(prefix) for prefix in plan.candidate_prefixes)
+            if plan.candidate_prefixes
+            else "[dim]— Nenhum seguro[/dim]"
+        ),
+    )
+
+    multiple_locations = len(plan.location_plans) > 1
+
+    for index, location_plan in enumerate(plan.location_plans, start=1):
+        suffix = f" #{index}" if multiple_locations else ""
+        location = location_plan.location
+        table.add_row(
+            f"Location de reparo{suffix}",
+            str(location.root)
+            if location is not None
+            else "[dim]— Não resolvida[/dim]",
+        )
+        table.add_row(
+            f"Classificação{suffix}",
+            _SENTINEL_REPAIR_KIND_LABELS[location_plan.kind],
+        )
+
+
+def _show_sentinel_repair_plan(
+    game: Game,
+    plan: SentinelRepairPlan,
+    *,
+    title: str,
+) -> None:
+    table = Table.grid(padding=(0, 2))
+    table.add_column(style="bold cyan", no_wrap=True)
+    table.add_column(style="white")
+    table.add_row("Jogo", game.name)
+    table.add_row("Config", str(plan.coverage.sentinel_status.path))
+    _add_sentinel_repair_rows(table, plan)
+    console.print(
+        Panel(
+            table,
+            title=title,
+            border_style=(
+                "green"
+                if not plan.needs_repair
+                else "cyan"
+                if plan.repairable_via_sentinel_config
+                else "yellow"
+            ),
+            box=box.ROUNDED,
+        )
+    )
+
+
+def show_sentinel_config_write_result(
+    result: SentinelConfigWriteResult,
+) -> None:
+    status_styles = {
+        SentinelConfigWriteStatus.APPLIED: "green",
+        SentinelConfigWriteStatus.NO_CHANGE: "cyan",
+        SentinelConfigWriteStatus.REJECTED: "yellow",
+        SentinelConfigWriteStatus.CONFLICT: "red",
+        SentinelConfigWriteStatus.FAILED: "red",
+        SentinelConfigWriteStatus.ROLLED_BACK: "yellow",
+    }
+    style = status_styles[result.status]
+    table = Table.grid(padding=(0, 2))
+    table.add_column(style="bold cyan", no_wrap=True)
+    table.add_column(style="white")
+    table.add_row("Status", f"[{style}]{result.status.name}[/{style}]")
+    table.add_row("Reason", result.reason.name)
+    table.add_row("Config", str(result.config_path))
+
+    if result.message:
+        table.add_row("Mensagem", result.message)
+
+    for index, prefix in enumerate(result.added_prefixes, start=1):
+        suffix = f" #{index}" if len(result.added_prefixes) > 1 else ""
+        table.add_row(f"Prefix adicionado{suffix}", str(prefix))
+
+    if result.backup_path is not None:
+        table.add_row("Backup", str(result.backup_path))
+
+    if result.partial:
+        table.add_row("Parcial", "[yellow]Sim[/yellow]")
+
+    table.add_row(
+        "Rollback executado",
+        "[yellow]Sim[/yellow]" if result.rolled_back else "Não",
+    )
+    console.print(
+        Panel(
+            table,
+            title="Resultado do reparo Sentinel",
+            border_style=style,
+            box=box.ROUNDED,
+        )
+    )
+
+    if result.status is SentinelConfigWriteStatus.ROLLED_BACK:
+        console.print(
+            "[yellow]A operação falhou, mas a configuração original "
+            "foi restaurada pelo rollback.[/yellow]"
+        )
+    elif (
+        result.status is SentinelConfigWriteStatus.FAILED
+        and result.reason is SentinelConfigWriteReason.ROLLBACK_FAILED
+    ):
+        console.print(
+            "[red]Falha crítica: o rollback FALHOU e a restauração do "
+            "original não pôde ser confirmada.[/red]"
+        )
+    elif result.status is SentinelConfigWriteStatus.CONFLICT:
+        console.print(
+            "[red]CONFLICT: a configuração mudou durante a operação; "
+            "nenhuma alteração concorrente foi sobrescrita.[/red]"
+        )
+
+
+def show_game_sentinel_integration_status(
+    game: Game,
+) -> None:
+    clear_screen()
+    render_header()
+
+    installation = detect_sentinel()
+    sentinel_status = read_sentinel_config(installation.config_path)
+    repair_plan = resolve_game_sentinel_repair(
+        game,
+        sentinel_status=sentinel_status,
+    )
+    coverage = repair_plan.coverage
+
+    table = Table.grid(padding=(0, 2))
+    table.add_column(style="bold cyan", no_wrap=True)
+    table.add_column(style="white")
+    table.add_row("Jogo", game.name)
+    table.add_row(
+        "AppID",
+        (
+            f"[green]✓ {coverage.app_id}[/green]"
+            if coverage.app_id is not None
+            else "[yellow]⚠ Não resolvido[/yellow]"
+        ),
+    )
+    table.add_row("", "")
+    table.add_row("[bold]Sentinel[/bold]", "")
+    table.add_row(
+        "Instalação",
+        (
+            f"[green]✓ Detectada[/green] • {installation.executable}"
+            if installation.installed
+            else "[yellow]⚠ Não detectada[/yellow]"
+        ),
+    )
+    table.add_row(
+        "Config existente",
+        (
+            "[green]✓ Sim[/green]"
+            if sentinel_status.exists
+            else "[yellow]⚠ Não[/yellow]"
+        ),
+    )
+
+    if not sentinel_status.exists:
+        json_status = "[dim]— Não avaliado[/dim]"
+        schema_status = "[dim]— Não avaliado[/dim]"
+    elif not sentinel_status.valid_json:
+        json_status = "[red]✗ Inválido[/red]"
+        schema_status = "[dim]— Não avaliado[/dim]"
+    else:
+        json_status = "[green]✓ Válido[/green]"
+        schema_status = (
+            "[green]✓ Válido[/green]"
+            if sentinel_status.schema_valid
+            else "[red]✗ Inválido[/red]"
+        )
+
+    table.add_row("JSON", json_status)
+    table.add_row("Schema", schema_status)
+    table.add_row(
+        "Watcher configurado",
+        (
+            "[green]✓ Sim[/green]"
+            if coverage.watcher_configured
+            else "[yellow]⚠ Não[/yellow]"
+        ),
+    )
+    table.add_row(
+        "GSE habilitado",
+        ("[green]✓ Sim[/green]" if coverage.gse_enabled else "[yellow]⚠ Não[/yellow]"),
+    )
+
+    gse_notifications = next(
+        (
+            emulator.should_notify
+            for emulator in sentinel_status.emulators
+            if emulator.id == SENTINEL_GSE_EMULATOR_ID
+        ),
+        None,
+    )
+
+    if gse_notifications is True:
+        notification_status = "[green]✓ Habilitadas[/green]"
+    elif gse_notifications is False:
+        notification_status = "[yellow]⚠ Desabilitadas[/yellow]"
+    else:
+        notification_status = "[dim]— Não disponível[/dim]"
+
+    table.add_row("Notificações GSE", notification_status)
+    table.add_row("", "")
+    table.add_row("[bold]Reconhecimento[/bold]", "")
+
+    if not coverage.recognized_by_sentinel:
+        sentinel_recognition = "[yellow]⚠ Não[/yellow]"
+    elif coverage.recognized_by_gse_runtime:
+        sentinel_recognition = "[green]✓ Sim[/green] • runtime GSE"
+    elif coverage.legacy_runtime_matches:
+        sentinel_recognition = "[yellow]⚠ Sim[/yellow] • somente Goldberg legacy"
+    else:
+        sentinel_recognition = "[green]✓ Sim[/green]"
+
+    table.add_row("Sentinel", sentinel_recognition)
+    table.add_row(
+        "Runtime GSE",
+        (
+            "[green]✓ Reconhecido[/green]"
+            if coverage.recognized_by_gse_runtime
+            else "[yellow]⚠ Não reconhecido[/yellow]"
+        ),
+    )
+    table.add_row(
+        "Runtime Goldberg legacy",
+        (
+            "[yellow]⚠ Reconhecido[/yellow]"
+            if coverage.legacy_runtime_matches
+            else "[dim]— Não reconhecido[/dim]"
+        ),
+    )
+    table.add_row("", "")
+    table.add_row("[bold]Coverage[/bold]", "")
+    save_resolution = coverage.save_resolution
+    save_ambiguous = save_resolution is not None and save_resolution.ambiguous
+    table.add_row(
+        "Save GSE resolvido",
+        (
+            "[yellow]⚠ Ambíguo[/yellow]"
+            if save_ambiguous
+            else "[green]✓ Sim[/green]"
+            if coverage.effective_save_resolved
+            else "[yellow]⚠ Não[/yellow]"
+        ),
+    )
+
+    if coverage.effective_save_resolved:
+        table.add_row(
+            "Fully watched",
+            "[green]✓ Sim[/green]" if coverage.fully_watched else "[dim]— Não[/dim]",
+        )
+        table.add_row(
+            "Partially watched",
+            (
+                "[yellow]⚠ Sim[/yellow]"
+                if coverage.partially_watched
+                else "[dim]— Não[/dim]"
+            ),
+        )
+        table.add_row(
+            "Unwatched",
+            "[red]✗ Sim[/red]" if coverage.unwatched else "[dim]— Não[/dim]",
+        )
+    else:
+        table.add_row("Fully watched", "[dim]— Não determinado[/dim]")
+        table.add_row("Partially watched", "[dim]— Não determinado[/dim]")
+        table.add_row("Unwatched", "[dim]— Não determinado[/dim]")
+
+        if save_ambiguous:
+            table.add_row("Effective root", "[dim]— Não determinado[/dim]")
+
+    if coverage.location_coverages:
+        multiple_locations = len(coverage.location_coverages) > 1
+
+        for index, location_coverage in enumerate(
+            coverage.location_coverages,
+            start=1,
+        ):
+            suffix = f" #{index}" if multiple_locations else ""
+            table.add_row(
+                f"Effective root{suffix}",
+                str(location_coverage.location.root),
+            )
+            table.add_row(
+                f"Cobertura{suffix}",
+                (
+                    "[green]✓ Coberta[/green]"
+                    if location_coverage.covered
+                    else "[red]✗ Não coberta[/red]"
+                ),
+            )
+
+            for root_index, matching_root in enumerate(
+                location_coverage.matching_roots,
+                start=1,
+            ):
+                match_suffix = (
+                    f" #{root_index}"
+                    if len(location_coverage.matching_roots) > 1
+                    else ""
+                )
+                table.add_row(
+                    f"Sentinel match{suffix}{match_suffix}",
+                    str(matching_root.path),
+                )
+
+    if save_resolution is not None and len(save_resolution.locations) > 1:
+        for index, location in enumerate(save_resolution.locations, start=1):
+            table.add_row(f"Possible root #{index}", str(location.root))
+
+    if coverage.gse_save_roots:
+        multiple_roots = len(coverage.gse_save_roots) > 1
+
+        for index, save_root in enumerate(coverage.gse_save_roots, start=1):
+            suffix = f" #{index}" if multiple_roots else ""
+            table.add_row(
+                f"Sentinel GSE root{suffix}",
+                str(save_root.path),
+            )
+    else:
+        table.add_row("Sentinel GSE roots", "[dim]— Nenhuma derivada[/dim]")
+
+    _add_sentinel_repair_rows(table, repair_plan)
+
+    console.print(
+        Panel(
+            table,
+            title="Sentinel • Integração GSE",
+            border_style="green" if coverage.fully_watched else "yellow",
+            box=box.ROUNDED,
+        )
+    )
+
+    diagnostics: list[str] = []
+
+    if not installation.installed:
+        diagnostics.append("O Sentinel não foi detectado neste sistema.")
+
+    if not sentinel_status.exists:
+        diagnostics.append("A configuração do Sentinel não foi encontrada.")
+    elif not sentinel_status.valid_json:
+        diagnostics.append("A configuração do Sentinel contém JSON inválido.")
+    elif not sentinel_status.schema_valid:
+        diagnostics.append("O schema da configuração do Sentinel é inválido.")
+
+    if sentinel_status.configured and not coverage.gse_enabled:
+        diagnostics.append("O Sentinel não possui o emulator GSE habilitado.")
+
+    if sentinel_status.configured and not sentinel_status.prefix_paths:
+        diagnostics.append("O watcher do Sentinel não possui prefixes configurados.")
+
+    if save_ambiguous:
+        if save_resolution is not None and len(save_resolution.runtime_locations) > 1:
+            diagnostics.append(
+                "Múltiplos runtimes para este AppID foram encontrados; "
+                "o root efetivo permanece ambíguo."
+            )
+        else:
+            diagnostics.append(
+                "Há múltiplos roots Wine possíveis e não foi possível determinar "
+                "com segurança qual é usado por este jogo."
+            )
+    elif not coverage.effective_save_resolved:
+        diagnostics.append("O save efetivo usado pelo GSE não pôde ser resolvido.")
+    elif coverage.fully_watched:
+        diagnostics.append("Todas as locations efetivas do GSE estão cobertas.")
+    elif coverage.partially_watched:
+        diagnostics.append("A cobertura do Sentinel é parcial.")
+        diagnostics.append("Será necessária uma correção de cobertura do Sentinel.")
+    elif coverage.unwatched:
+        diagnostics.append("O save efetivamente usado pelo GSE não é observado.")
+        diagnostics.append("Será necessária uma correção de cobertura do Sentinel.")
+
+    if (
+        coverage.recognized_by_sentinel
+        and coverage.effective_save_resolved
+        and not coverage.effective_save_watched
+    ):
+        diagnostics.append(
+            "O Sentinel reconhece este AppID em outro runtime, "
+            "mas não está observando o save atualmente usado pelo GSE."
+        )
+
+    if (
+        coverage.recognized_by_sentinel
+        and not coverage.recognized_by_gse_runtime
+        and coverage.legacy_runtime_matches
+    ):
+        diagnostics.append(
+            "O AppID foi reconhecido somente no runtime Goldberg legacy, "
+            "não no runtime GSE atual."
+        )
+
+    for location_plan in repair_plan.uncovered_location_plans:
+        diagnostics.append(
+            f"Motivo: {_SENTINEL_REPAIR_KIND_LABELS[location_plan.kind]}."
+        )
+
+    console.print()
+    console.print(
+        Panel.fit(
+            "\n".join(diagnostics) if diagnostics else "Nenhum problema detectado.",
+            title="Diagnóstico",
+            border_style="green" if coverage.fully_watched else "yellow",
+            box=box.ROUNDED,
+        )
+    )
+    console.print()
+    console.print(
+        "[dim]Somente leitura • nenhum arquivo do Sentinel ou save foi alterado.[/dim]"
+    )
+    pause()
+
+
+def repair_game_sentinel_integration(
+    game: Game,
+) -> None:
+    clear_screen()
+    render_header()
+
+    try:
+        plan = resolve_game_sentinel_repair(game)
+    except Exception as error:  # noqa: BLE001 - user-facing boundary
+        console.print(
+            Panel.fit(
+                f"[red]Não foi possível resolver o reparo do Sentinel.[/red]\n\n{error}",
+                border_style="red",
+                box=box.ROUNDED,
+            )
+        )
+        pause()
+        return
+
+    _show_sentinel_repair_plan(
+        game,
+        plan,
+        title="Sentinel • Plano de reparo",
+    )
+
+    if not plan.config_valid:
+        config_messages = {
+            SentinelRepairConfigState.MISSING: (
+                "A configuração do Sentinel não foi encontrada."
+            ),
+            SentinelRepairConfigState.INVALID_JSON: (
+                "A configuração do Sentinel contém JSON inválido."
+            ),
+            SentinelRepairConfigState.INVALID_SCHEMA: (
+                "O schema da configuração do Sentinel é inválido."
+            ),
+        }
+        console.print(f"[yellow]{config_messages[plan.config_state]}[/yellow]")
+        console.print("[yellow]Nenhuma alteração foi realizada.[/yellow]")
+        pause()
+        return
+
+    if not plan.gse_enabled:
+        console.print(
+            "[yellow]O emulator GSE está desabilitado. Esta versão não o "
+            "habilita automaticamente.[/yellow]"
+        )
+        console.print("[yellow]Nenhuma alteração foi realizada.[/yellow]")
+        pause()
+        return
+
+    save_resolution = plan.coverage.save_resolution
+
+    if not plan.coverage.effective_save_resolved:
+        unresolved_message = (
+            "O save GSE efetivo não pôde ser determinado com segurança."
+            if save_resolution is not None and save_resolution.ambiguous
+            else "O save GSE efetivo não pôde ser resolvido com segurança."
+        )
+        console.print(f"[yellow]{unresolved_message}[/yellow]")
+        console.print("[yellow]Nenhuma correção automática será proposta.[/yellow]")
+        pause()
+        return
+
+    if not plan.needs_repair:
+        console.print("[green]Nenhuma correção é necessária.[/green]")
+        pause()
+        return
+
+    if not plan.has_safe_prefix_additions:
+        console.print(
+            "[yellow]Não existe candidate prefix seguro que esta versão "
+            "possa adicionar.[/yellow]"
+        )
+        if plan.requires_gse_change:
+            console.print(
+                "[yellow]É necessária uma mudança na configuração de saves "
+                "do GSE; ela não será feita automaticamente.[/yellow]"
+            )
+        pause()
+        return
+
+    partial = plan.partially_repairable_via_sentinel_config
+
+    if not plan.fully_repairable_via_sentinel_config and not partial:
+        console.print(
+            "[yellow]O planner não produziu um reparo representável com "
+            "segurança. Nenhuma alteração foi realizada.[/yellow]"
+        )
+        pause()
+        return
+
+    console.print()
+
+    if partial:
+        console.print("[bold yellow]Esta correção é PARCIAL.[/bold yellow]")
+        console.print(
+            "[yellow]As locations classificadas como não suportadas "
+            "continuarão sem cobertura.[/yellow]"
+        )
+        if plan.requires_gse_change:
+            console.print(
+                "[yellow]Uma correção completa também requer mudança no GSE.[/yellow]"
+            )
+    else:
+        console.print(
+            "[bold green]Esta correção pode ser feita no Sentinel.[/bold green]"
+        )
+
+    confirmation = Table.grid(padding=(0, 2))
+    confirmation.add_column(style="bold cyan", no_wrap=True)
+    confirmation.add_column(style="white")
+    confirmation.add_row("Config", str(plan.coverage.sentinel_status.path))
+    confirmation.add_row(
+        "Será adicionado",
+        "\n".join(str(prefix) for prefix in plan.candidate_prefixes),
+    )
+    console.print(
+        Panel(
+            confirmation,
+            title="Alteração proposta",
+            border_style="yellow" if partial else "cyan",
+            box=box.ROUNDED,
+        )
+    )
+    console.print("[dim]Nenhum prefix existente será removido.[/dim]")
+    console.print("[dim]Nenhuma configuração GSE será modificada.[/dim]")
+    console.print("[dim]Um backup será criado automaticamente.[/dim]")
+    console.print("[dim]Somente a lista prefixes do Sentinel será alterada.[/dim]")
+
+    confirmation_message = (
+        "Aplicar esta correção parcial do Sentinel?"
+        if partial
+        else "Aplicar esta correção do Sentinel?"
+    )
+    confirmed = questionary.confirm(
+        confirmation_message,
+        default=False,
+    ).ask()
+
+    if not confirmed:
+        console.print(
+            "[yellow]Correção cancelada. Nenhuma alteração foi realizada.[/yellow]"
+        )
+        pause()
+        return
+
+    result = apply_sentinel_config_repair(
+        plan,
+        allow_partial=partial,
+    )
+    console.print()
+    show_sentinel_config_write_result(result)
+
+    if result.status is SentinelConfigWriteStatus.APPLIED:
+        console.print()
+
+        try:
+            post_plan = resolve_game_sentinel_repair(game)
+        except Exception as error:  # noqa: BLE001 - post-write feedback must not crash
+            console.print(
+                "[yellow]A alteração foi aplicada, mas não foi possível "
+                f"reconsultar a integração: {error}[/yellow]"
+            )
+        else:
+            _show_sentinel_repair_plan(
+                game,
+                post_plan,
+                title="Sentinel • Estado pós-operação",
+            )
 
     pause()
 

@@ -296,6 +296,27 @@ class AchievementGameResolutionTests(unittest.TestCase):
                 tuple(report.unlocked for report in resolution.reports),
                 (1, 1),
             )
+            self.assertFalse(resolution.runtime_resolved)
+
+            output = StringIO()
+            test_console = Console(file=output, width=160, color_system=None)
+
+            with (
+                patch(
+                    "goldberg_manager.cli.resolve_game_achievement_progress",
+                    return_value=resolution,
+                ),
+                patch("goldberg_manager.cli.console", test_console),
+                patch("goldberg_manager.cli.clear_screen"),
+                patch("goldberg_manager.cli.render_header"),
+                patch("goldberg_manager.cli.pause"),
+            ):
+                show_game_achievement_status(game)
+
+            rendered = output.getvalue()
+            self.assertIn("2 arquivos encontrados", rendered)
+            self.assertIn("Runtime #1", rendered)
+            self.assertIn("Runtime #2", rendered)
 
     def test_records_invalid_runtime_without_raising(self) -> None:
         with tempfile.TemporaryDirectory() as temp_directory:
@@ -409,6 +430,8 @@ class AchievementGameResolutionTests(unittest.TestCase):
                 "Verificar achievements / progresso",
                 "Verificar GSE saves",
                 "Verificar Sentinel",
+                "Verificar integração Sentinel",
+                "Corrigir integração Sentinel",
                 "Fazer backup da Steam API",
                 "Restaurar Steam API original",
                 "Voltar",
@@ -419,6 +442,12 @@ class AchievementGameResolutionTests(unittest.TestCase):
                 patch("goldberg_manager.cli.show_game_achievement_status") as progress,
                 patch("goldberg_manager.cli.show_game_gse_status") as gse_status,
                 patch("goldberg_manager.cli.show_game_sentinel_status") as sentinel,
+                patch(
+                    "goldberg_manager.cli.show_game_sentinel_integration_status"
+                ) as integration,
+                patch(
+                    "goldberg_manager.cli.repair_game_sentinel_integration"
+                ) as repair_integration,
                 patch("goldberg_manager.cli.create_game_backup") as backup,
                 patch("goldberg_manager.cli.restore_game_api") as restore,
                 patch("goldberg_manager.cli.has_backup", return_value=False),
@@ -437,6 +466,8 @@ class AchievementGameResolutionTests(unittest.TestCase):
             progress.assert_called_once_with(game)
             gse_status.assert_called_once_with(game)
             sentinel.assert_called_once_with(game)
+            integration.assert_called_once_with(game)
+            repair_integration.assert_called_once_with(game)
             backup.assert_called_once_with(game)
             restore.assert_called_once_with(game)
 

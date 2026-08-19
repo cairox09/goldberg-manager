@@ -488,6 +488,11 @@ class SentinelGameIntegrationTests(unittest.TestCase):
                 "Será necessária uma correção de cobertura do Sentinel.",
                 rendered,
             )
+            self.assertIn("Reparo necessário", rendered)
+            self.assertIn("Corrigível apenas no Sentinel", rendered)
+            self.assertIn("Requer mudança no GSE", rendered)
+            self.assertIn("save customizado fora do layout observado", rendered)
+            self.assertIn("Nenhum seguro", rendered)
             self.assertNotIn("adicione", rendered.casefold())
 
     def test_recognized_but_unwatched_is_explicit(self) -> None:

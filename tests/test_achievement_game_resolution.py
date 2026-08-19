@@ -409,6 +409,7 @@ class AchievementGameResolutionTests(unittest.TestCase):
                 "Verificar achievements / progresso",
                 "Verificar GSE saves",
                 "Verificar Sentinel",
+                "Verificar integração Sentinel",
                 "Fazer backup da Steam API",
                 "Restaurar Steam API original",
                 "Voltar",
@@ -419,6 +420,9 @@ class AchievementGameResolutionTests(unittest.TestCase):
                 patch("goldberg_manager.cli.show_game_achievement_status") as progress,
                 patch("goldberg_manager.cli.show_game_gse_status") as gse_status,
                 patch("goldberg_manager.cli.show_game_sentinel_status") as sentinel,
+                patch(
+                    "goldberg_manager.cli.show_game_sentinel_integration_status"
+                ) as integration,
                 patch("goldberg_manager.cli.create_game_backup") as backup,
                 patch("goldberg_manager.cli.restore_game_api") as restore,
                 patch("goldberg_manager.cli.has_backup", return_value=False),
@@ -437,6 +441,7 @@ class AchievementGameResolutionTests(unittest.TestCase):
             progress.assert_called_once_with(game)
             gse_status.assert_called_once_with(game)
             sentinel.assert_called_once_with(game)
+            integration.assert_called_once_with(game)
             backup.assert_called_once_with(game)
             restore.assert_called_once_with(game)
 

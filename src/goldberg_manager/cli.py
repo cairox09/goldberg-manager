@@ -67,6 +67,10 @@ from .sentinel import (
     resolve_sentinel_runtime_saves,
     resolve_sentinel_save_roots,
 )
+from .sentinel_integration import (
+    SentinelGseCoverage,
+    resolve_sentinel_gse_coverage,
+)
 from .settings import (
     SteamUserSettings,
     generate_game_steam_settings,
@@ -147,6 +151,12 @@ class GameGseResolution:
         return (
             self.save_resolution is not None and self.save_resolution.achievements_found
         )
+
+
+@dataclass(frozen=True, slots=True)
+class GameSentinelIntegrationResolution:
+    gse_resolution: GameGseResolution
+    coverage: SentinelGseCoverage
 
 
 @dataclass(frozen=True, slots=True)
@@ -313,6 +323,31 @@ def resolve_game_gse_runtime(
     assert fallback is not None
 
     return fallback
+
+
+def resolve_game_sentinel_integration(
+    game: Game,
+    *,
+    sentinel_status: SentinelConfigStatus | None = None,
+) -> GameSentinelIntegrationResolution:
+    if sentinel_status is None:
+        installation = detect_sentinel()
+        sentinel_status = read_sentinel_config(installation.config_path)
+
+    gse_resolution = resolve_game_gse_runtime(
+        game,
+        sentinel_status=sentinel_status,
+    )
+    coverage = resolve_sentinel_gse_coverage(
+        sentinel_status,
+        gse_resolution.app_id,
+        gse_resolution.save_resolution,
+    )
+
+    return GameSentinelIntegrationResolution(
+        gse_resolution=gse_resolution,
+        coverage=coverage,
+    )
 
 
 def resolve_game_achievement_progress(
@@ -675,6 +710,7 @@ def show_game_details(game) -> None:
                 "Verificar achievements / progresso",
                 "Verificar GSE saves",
                 "Verificar Sentinel",
+                "Verificar integração Sentinel",
                 "Fazer backup da Steam API",
                 "Restaurar Steam API original",
                 "Voltar",
@@ -689,6 +725,9 @@ def show_game_details(game) -> None:
 
         elif choice == "Verificar Sentinel":
             show_game_sentinel_status(game)
+
+        elif choice == "Verificar integração Sentinel":
+            show_game_sentinel_integration_status(game)
 
         elif choice == "Fazer backup da Steam API":
             create_game_backup(game)
@@ -1752,6 +1791,280 @@ def show_game_gse_status(
         "[/dim]"
     )
 
+    pause()
+
+
+def show_game_sentinel_integration_status(
+    game: Game,
+) -> None:
+    clear_screen()
+    render_header()
+
+    installation = detect_sentinel()
+    sentinel_status = read_sentinel_config(installation.config_path)
+    resolution = resolve_game_sentinel_integration(
+        game,
+        sentinel_status=sentinel_status,
+    )
+    coverage = resolution.coverage
+
+    table = Table.grid(padding=(0, 2))
+    table.add_column(style="bold cyan", no_wrap=True)
+    table.add_column(style="white")
+    table.add_row("Jogo", game.name)
+    table.add_row(
+        "AppID",
+        (
+            f"[green]✓ {coverage.app_id}[/green]"
+            if coverage.app_id is not None
+            else "[yellow]⚠ Não resolvido[/yellow]"
+        ),
+    )
+    table.add_row("", "")
+    table.add_row("[bold]Sentinel[/bold]", "")
+    table.add_row(
+        "Instalação",
+        (
+            f"[green]✓ Detectada[/green] • {installation.executable}"
+            if installation.installed
+            else "[yellow]⚠ Não detectada[/yellow]"
+        ),
+    )
+    table.add_row(
+        "Config existente",
+        (
+            "[green]✓ Sim[/green]"
+            if sentinel_status.exists
+            else "[yellow]⚠ Não[/yellow]"
+        ),
+    )
+
+    if not sentinel_status.exists:
+        json_status = "[dim]— Não avaliado[/dim]"
+        schema_status = "[dim]— Não avaliado[/dim]"
+    elif not sentinel_status.valid_json:
+        json_status = "[red]✗ Inválido[/red]"
+        schema_status = "[dim]— Não avaliado[/dim]"
+    else:
+        json_status = "[green]✓ Válido[/green]"
+        schema_status = (
+            "[green]✓ Válido[/green]"
+            if sentinel_status.schema_valid
+            else "[red]✗ Inválido[/red]"
+        )
+
+    table.add_row("JSON", json_status)
+    table.add_row("Schema", schema_status)
+    table.add_row(
+        "Watcher configurado",
+        (
+            "[green]✓ Sim[/green]"
+            if coverage.watcher_configured
+            else "[yellow]⚠ Não[/yellow]"
+        ),
+    )
+    table.add_row(
+        "GSE habilitado",
+        ("[green]✓ Sim[/green]" if coverage.gse_enabled else "[yellow]⚠ Não[/yellow]"),
+    )
+
+    gse_notifications = next(
+        (
+            emulator.should_notify
+            for emulator in sentinel_status.emulators
+            if emulator.id == SENTINEL_GSE_EMULATOR_ID
+        ),
+        None,
+    )
+
+    if gse_notifications is True:
+        notification_status = "[green]✓ Habilitadas[/green]"
+    elif gse_notifications is False:
+        notification_status = "[yellow]⚠ Desabilitadas[/yellow]"
+    else:
+        notification_status = "[dim]— Não disponível[/dim]"
+
+    table.add_row("Notificações GSE", notification_status)
+    table.add_row("", "")
+    table.add_row("[bold]Reconhecimento[/bold]", "")
+
+    if not coverage.recognized_by_sentinel:
+        sentinel_recognition = "[yellow]⚠ Não[/yellow]"
+    elif coverage.recognized_by_gse_runtime:
+        sentinel_recognition = "[green]✓ Sim[/green] • runtime GSE"
+    elif coverage.legacy_runtime_matches:
+        sentinel_recognition = "[yellow]⚠ Sim[/yellow] • somente Goldberg legacy"
+    else:
+        sentinel_recognition = "[green]✓ Sim[/green]"
+
+    table.add_row("Sentinel", sentinel_recognition)
+    table.add_row(
+        "Runtime GSE",
+        (
+            "[green]✓ Reconhecido[/green]"
+            if coverage.recognized_by_gse_runtime
+            else "[yellow]⚠ Não reconhecido[/yellow]"
+        ),
+    )
+    table.add_row(
+        "Runtime Goldberg legacy",
+        (
+            "[yellow]⚠ Reconhecido[/yellow]"
+            if coverage.legacy_runtime_matches
+            else "[dim]— Não reconhecido[/dim]"
+        ),
+    )
+    table.add_row("", "")
+    table.add_row("[bold]Coverage[/bold]", "")
+    table.add_row(
+        "Save GSE resolvido",
+        (
+            "[green]✓ Sim[/green]"
+            if coverage.effective_save_resolved
+            else "[yellow]⚠ Não[/yellow]"
+        ),
+    )
+
+    if coverage.effective_save_resolved:
+        table.add_row(
+            "Fully watched",
+            "[green]✓ Sim[/green]" if coverage.fully_watched else "[dim]— Não[/dim]",
+        )
+        table.add_row(
+            "Partially watched",
+            (
+                "[yellow]⚠ Sim[/yellow]"
+                if coverage.partially_watched
+                else "[dim]— Não[/dim]"
+            ),
+        )
+        table.add_row(
+            "Unwatched",
+            "[red]✗ Sim[/red]" if coverage.unwatched else "[dim]— Não[/dim]",
+        )
+    else:
+        table.add_row("Fully watched", "[dim]— Não determinado[/dim]")
+        table.add_row("Partially watched", "[dim]— Não determinado[/dim]")
+        table.add_row("Unwatched", "[dim]— Não determinado[/dim]")
+
+    if coverage.location_coverages:
+        multiple_locations = len(coverage.location_coverages) > 1
+
+        for index, location_coverage in enumerate(
+            coverage.location_coverages,
+            start=1,
+        ):
+            suffix = f" #{index}" if multiple_locations else ""
+            table.add_row(
+                f"Effective root{suffix}",
+                str(location_coverage.location.root),
+            )
+            table.add_row(
+                f"Cobertura{suffix}",
+                (
+                    "[green]✓ Coberta[/green]"
+                    if location_coverage.covered
+                    else "[red]✗ Não coberta[/red]"
+                ),
+            )
+
+            for root_index, matching_root in enumerate(
+                location_coverage.matching_roots,
+                start=1,
+            ):
+                match_suffix = (
+                    f" #{root_index}"
+                    if len(location_coverage.matching_roots) > 1
+                    else ""
+                )
+                table.add_row(
+                    f"Sentinel match{suffix}{match_suffix}",
+                    str(matching_root.path),
+                )
+
+    if coverage.gse_save_roots:
+        multiple_roots = len(coverage.gse_save_roots) > 1
+
+        for index, save_root in enumerate(coverage.gse_save_roots, start=1):
+            suffix = f" #{index}" if multiple_roots else ""
+            table.add_row(
+                f"Sentinel GSE root{suffix}",
+                str(save_root.path),
+            )
+    else:
+        table.add_row("Sentinel GSE roots", "[dim]— Nenhuma derivada[/dim]")
+
+    console.print(
+        Panel(
+            table,
+            title="Sentinel • Integração GSE",
+            border_style="green" if coverage.fully_watched else "yellow",
+            box=box.ROUNDED,
+        )
+    )
+
+    diagnostics: list[str] = []
+
+    if not installation.installed:
+        diagnostics.append("O Sentinel não foi detectado neste sistema.")
+
+    if not sentinel_status.exists:
+        diagnostics.append("A configuração do Sentinel não foi encontrada.")
+    elif not sentinel_status.valid_json:
+        diagnostics.append("A configuração do Sentinel contém JSON inválido.")
+    elif not sentinel_status.schema_valid:
+        diagnostics.append("O schema da configuração do Sentinel é inválido.")
+
+    if sentinel_status.configured and not coverage.gse_enabled:
+        diagnostics.append("O Sentinel não possui o emulator GSE habilitado.")
+
+    if sentinel_status.configured and not sentinel_status.prefix_paths:
+        diagnostics.append("O watcher do Sentinel não possui prefixes configurados.")
+
+    if not coverage.effective_save_resolved:
+        diagnostics.append("O save efetivo usado pelo GSE não pôde ser resolvido.")
+    elif coverage.fully_watched:
+        diagnostics.append("Todas as locations efetivas do GSE estão cobertas.")
+    elif coverage.partially_watched:
+        diagnostics.append("A cobertura do Sentinel é parcial.")
+        diagnostics.append("Será necessária uma correção de cobertura do Sentinel.")
+    elif coverage.unwatched:
+        diagnostics.append("O save efetivamente usado pelo GSE não é observado.")
+        diagnostics.append("Será necessária uma correção de cobertura do Sentinel.")
+
+    if (
+        coverage.recognized_by_sentinel
+        and coverage.effective_save_resolved
+        and not coverage.effective_save_watched
+    ):
+        diagnostics.append(
+            "O Sentinel reconhece este AppID em outro runtime, "
+            "mas não está observando o save atualmente usado pelo GSE."
+        )
+
+    if (
+        coverage.recognized_by_sentinel
+        and not coverage.recognized_by_gse_runtime
+        and coverage.legacy_runtime_matches
+    ):
+        diagnostics.append(
+            "O AppID foi reconhecido somente no runtime Goldberg legacy, "
+            "não no runtime GSE atual."
+        )
+
+    console.print()
+    console.print(
+        Panel.fit(
+            "\n".join(diagnostics) if diagnostics else "Nenhum problema detectado.",
+            title="Diagnóstico",
+            border_style="green" if coverage.fully_watched else "yellow",
+            box=box.ROUNDED,
+        )
+    )
+    console.print()
+    console.print(
+        "[dim]Somente leitura • nenhum arquivo do Sentinel ou save foi alterado.[/dim]"
+    )
     pause()
 
 

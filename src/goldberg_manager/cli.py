@@ -14,7 +14,6 @@ from rich.text import Text
 from .achievements import (
     AchievementDataError,
     AchievementReport,
-    read_achievement_report,
 )
 from .appid import (
     SteamStoreSearchError,
@@ -44,11 +43,24 @@ from .emu_config import (
     read_installed_achievements_status,
     run_generate_emu_config,
 )
-from .generators import generate_game_steam_interfaces
-from .gse_saves import (
-    GseSaveResolution,
-    resolve_game_gse_saves,
+from .game_resolution import (
+    AchievementReadError as _AchievementReadError,
 )
+from .game_resolution import (
+    GameAchievementResolution,
+    GameGseResolution,
+    GameSentinelIntegrationResolution,
+)
+from .game_resolution import (
+    resolve_game_achievement_progress as resolve_game_achievement_progress_domain,
+)
+from .game_resolution import (
+    resolve_game_gse_runtime as resolve_game_gse_runtime_domain,
+)
+from .game_resolution import (
+    resolve_game_sentinel_integration as resolve_game_sentinel_integration_domain,
+)
+from .generators import generate_game_steam_interfaces
 from .scanner import (
     Game,
     GameCandidate,
@@ -74,7 +86,6 @@ from .sentinel_config_writer import (
     apply_sentinel_config_repair,
 )
 from .sentinel_integration import (
-    SentinelGseCoverage,
     resolve_sentinel_gse_coverage,
 )
 from .sentinel_repair import (
@@ -102,6 +113,8 @@ from .settings_catalog import (
     get_country_choices,
     prioritize_setting_choices,
 )
+
+AchievementReadError = _AchievementReadError
 
 APP_NAME = "Goldberg Manager"
 APP_VERSION = "0.2.0"
@@ -141,58 +154,6 @@ class GameSentinelResolution:
     @property
     def runtime_found(self) -> bool:
         return bool(self.runtime_saves)
-
-
-@dataclass(frozen=True, slots=True)
-class GameGseResolution:
-    app_id: int | None
-    app_id_confidence: int | None
-    app_id_source: str | None
-    save_resolution: GseSaveResolution | None
-
-    @property
-    def resolved(self) -> bool:
-        return self.save_resolution is not None and self.save_resolution.resolved
-
-    @property
-    def runtime_found(self) -> bool:
-        return self.save_resolution is not None and self.save_resolution.runtime_found
-
-    @property
-    def achievements_found(self) -> bool:
-        return (
-            self.save_resolution is not None and self.save_resolution.achievements_found
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class GameSentinelIntegrationResolution:
-    gse_resolution: GameGseResolution
-    coverage: SentinelGseCoverage
-
-
-@dataclass(frozen=True, slots=True)
-class AchievementReadError:
-    path: Path
-    message: str
-
-
-@dataclass(frozen=True, slots=True)
-class GameAchievementResolution:
-    gse_resolution: GameGseResolution
-    metadata_path: Path
-    language: str
-    runtime_paths: tuple[Path, ...]
-    reports: tuple[AchievementReport, ...]
-    errors: tuple[AchievementReadError, ...]
-
-    @property
-    def metadata_exists(self) -> bool:
-        return self.metadata_path.is_file()
-
-    @property
-    def runtime_resolved(self) -> bool:
-        return self.gse_resolution.resolved
 
 
 def get_next_guided_step(
@@ -277,64 +238,15 @@ def resolve_game_gse_runtime(
     *,
     sentinel_status: SentinelConfigStatus | None = None,
 ) -> GameGseResolution:
-    if sentinel_status is None:
-        installation = detect_sentinel()
-
-        sentinel_status = read_sentinel_config(
-            installation.config_path,
-        )
-
-    discovered_drives = discover_sentinel_drive_c_paths(
-        sentinel_status.prefix_paths,
+    return resolve_game_gse_runtime_domain(
+        game,
+        sentinel_status=sentinel_status,
+        sentinel_detector=detect_sentinel,
+        sentinel_config_reader=read_sentinel_config,
+        drive_c_discoverer=discover_sentinel_drive_c_paths,
+        app_id_resolver=resolve_local_appid,
+        settings_reader=read_game_steam_settings,
     )
-
-    wine_drive_c_paths = tuple(discovered.drive_c for discovered in discovered_drives)
-
-    app_id_candidates = resolve_local_appid(game)
-
-    if not app_id_candidates:
-        return GameGseResolution(
-            app_id=None,
-            app_id_confidence=None,
-            app_id_source=None,
-            save_resolution=None,
-        )
-
-    settings = read_game_steam_settings(game)
-
-    fallback: GameGseResolution | None = None
-    runtime_match: GameGseResolution | None = None
-
-    for candidate in app_id_candidates:
-        save_resolution = resolve_game_gse_saves(
-            game,
-            candidate.app_id,
-            settings=settings,
-            wine_drive_c_paths=wine_drive_c_paths,
-        )
-
-        current = GameGseResolution(
-            app_id=candidate.app_id,
-            app_id_confidence=candidate.score,
-            app_id_source=candidate.source,
-            save_resolution=save_resolution,
-        )
-
-        if fallback is None:
-            fallback = current
-
-        if save_resolution.achievements_found:
-            return current
-
-        if save_resolution.runtime_found and runtime_match is None:
-            runtime_match = current
-
-    if runtime_match is not None:
-        return runtime_match
-
-    assert fallback is not None
-
-    return fallback
 
 
 def resolve_game_sentinel_integration(
@@ -342,23 +254,13 @@ def resolve_game_sentinel_integration(
     *,
     sentinel_status: SentinelConfigStatus | None = None,
 ) -> GameSentinelIntegrationResolution:
-    if sentinel_status is None:
-        installation = detect_sentinel()
-        sentinel_status = read_sentinel_config(installation.config_path)
-
-    gse_resolution = resolve_game_gse_runtime(
+    return resolve_game_sentinel_integration_domain(
         game,
         sentinel_status=sentinel_status,
-    )
-    coverage = resolve_sentinel_gse_coverage(
-        sentinel_status,
-        gse_resolution.app_id,
-        gse_resolution.save_resolution,
-    )
-
-    return GameSentinelIntegrationResolution(
-        gse_resolution=gse_resolution,
-        coverage=coverage,
+        sentinel_detector=detect_sentinel,
+        sentinel_config_reader=read_sentinel_config,
+        gse_resolver=resolve_game_gse_runtime,
+        coverage_resolver=resolve_sentinel_gse_coverage,
     )
 
 
@@ -379,91 +281,11 @@ def resolve_game_achievement_progress(
     *,
     sentinel_status: SentinelConfigStatus | None = None,
 ) -> GameAchievementResolution:
-    gse_resolution = resolve_game_gse_runtime(
+    return resolve_game_achievement_progress_domain(
         game,
         sentinel_status=sentinel_status,
-    )
-    settings = read_game_steam_settings(game)
-    language = settings.language or "english"
-    metadata_path = game.steam_api.parent / "steam_settings" / "achievements.json"
-    save_resolution = gse_resolution.save_resolution
-    runtime_paths = (
-        tuple(
-            location.achievements_path
-            for location in save_resolution.locations
-            if location.achievements_exists
-        )
-        if save_resolution is not None
-        else ()
-    )
-
-    if not metadata_path.is_file():
-        return GameAchievementResolution(
-            gse_resolution=gse_resolution,
-            metadata_path=metadata_path,
-            language=language,
-            runtime_paths=runtime_paths,
-            reports=(),
-            errors=(),
-        )
-
-    try:
-        metadata_report = read_achievement_report(
-            metadata_path,
-            language=language,
-        )
-    except AchievementDataError as error:
-        return GameAchievementResolution(
-            gse_resolution=gse_resolution,
-            metadata_path=metadata_path,
-            language=language,
-            runtime_paths=runtime_paths,
-            reports=(),
-            errors=(
-                AchievementReadError(
-                    path=metadata_path,
-                    message=str(error),
-                ),
-            ),
-        )
-
-    if not runtime_paths:
-        return GameAchievementResolution(
-            gse_resolution=gse_resolution,
-            metadata_path=metadata_path,
-            language=language,
-            runtime_paths=(),
-            reports=(metadata_report,),
-            errors=(),
-        )
-
-    reports: list[AchievementReport] = []
-    errors: list[AchievementReadError] = []
-
-    for runtime_path in runtime_paths:
-        try:
-            reports.append(
-                read_achievement_report(
-                    metadata_path,
-                    runtime_path,
-                    language=language,
-                )
-            )
-        except AchievementDataError as error:
-            errors.append(
-                AchievementReadError(
-                    path=runtime_path,
-                    message=str(error),
-                )
-            )
-
-    return GameAchievementResolution(
-        gse_resolution=gse_resolution,
-        metadata_path=metadata_path,
-        language=language,
-        runtime_paths=runtime_paths,
-        reports=tuple(reports),
-        errors=tuple(errors),
+        gse_resolver=resolve_game_gse_runtime,
+        settings_reader=read_game_steam_settings,
     )
 
 

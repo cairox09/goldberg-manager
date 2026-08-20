@@ -119,7 +119,7 @@ from .settings_catalog import (
 AchievementReadError = _AchievementReadError
 
 APP_NAME = "Goldberg Manager"
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.3.0"
 
 
 @dataclass(slots=True)

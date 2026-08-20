@@ -7,6 +7,7 @@ from pathlib import Path
 
 from rich import box
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -14,7 +15,6 @@ from rich.text import Text
 from .achievements import (
     AchievementDataError,
     AchievementReport,
-    read_achievement_report,
 )
 from .appid import (
     SteamStoreSearchError,
@@ -44,11 +44,25 @@ from .emu_config import (
     read_installed_achievements_status,
     run_generate_emu_config,
 )
-from .generators import generate_game_steam_interfaces
-from .gse_saves import (
-    GseSaveResolution,
-    resolve_game_gse_saves,
+from .game_profile import GameProfile, resolve_game_profile
+from .game_resolution import (
+    AchievementReadError as _AchievementReadError,
 )
+from .game_resolution import (
+    GameAchievementResolution,
+    GameGseResolution,
+    GameSentinelIntegrationResolution,
+)
+from .game_resolution import (
+    resolve_game_achievement_progress as resolve_game_achievement_progress_domain,
+)
+from .game_resolution import (
+    resolve_game_gse_runtime as resolve_game_gse_runtime_domain,
+)
+from .game_resolution import (
+    resolve_game_sentinel_integration as resolve_game_sentinel_integration_domain,
+)
+from .generators import generate_game_steam_interfaces
 from .scanner import (
     Game,
     GameCandidate,
@@ -74,7 +88,6 @@ from .sentinel_config_writer import (
     apply_sentinel_config_repair,
 )
 from .sentinel_integration import (
-    SentinelGseCoverage,
     resolve_sentinel_gse_coverage,
 )
 from .sentinel_repair import (
@@ -102,6 +115,8 @@ from .settings_catalog import (
     get_country_choices,
     prioritize_setting_choices,
 )
+
+AchievementReadError = _AchievementReadError
 
 APP_NAME = "Goldberg Manager"
 APP_VERSION = "0.2.0"
@@ -141,58 +156,6 @@ class GameSentinelResolution:
     @property
     def runtime_found(self) -> bool:
         return bool(self.runtime_saves)
-
-
-@dataclass(frozen=True, slots=True)
-class GameGseResolution:
-    app_id: int | None
-    app_id_confidence: int | None
-    app_id_source: str | None
-    save_resolution: GseSaveResolution | None
-
-    @property
-    def resolved(self) -> bool:
-        return self.save_resolution is not None and self.save_resolution.resolved
-
-    @property
-    def runtime_found(self) -> bool:
-        return self.save_resolution is not None and self.save_resolution.runtime_found
-
-    @property
-    def achievements_found(self) -> bool:
-        return (
-            self.save_resolution is not None and self.save_resolution.achievements_found
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class GameSentinelIntegrationResolution:
-    gse_resolution: GameGseResolution
-    coverage: SentinelGseCoverage
-
-
-@dataclass(frozen=True, slots=True)
-class AchievementReadError:
-    path: Path
-    message: str
-
-
-@dataclass(frozen=True, slots=True)
-class GameAchievementResolution:
-    gse_resolution: GameGseResolution
-    metadata_path: Path
-    language: str
-    runtime_paths: tuple[Path, ...]
-    reports: tuple[AchievementReport, ...]
-    errors: tuple[AchievementReadError, ...]
-
-    @property
-    def metadata_exists(self) -> bool:
-        return self.metadata_path.is_file()
-
-    @property
-    def runtime_resolved(self) -> bool:
-        return self.gse_resolution.resolved
 
 
 def get_next_guided_step(
@@ -277,64 +240,15 @@ def resolve_game_gse_runtime(
     *,
     sentinel_status: SentinelConfigStatus | None = None,
 ) -> GameGseResolution:
-    if sentinel_status is None:
-        installation = detect_sentinel()
-
-        sentinel_status = read_sentinel_config(
-            installation.config_path,
-        )
-
-    discovered_drives = discover_sentinel_drive_c_paths(
-        sentinel_status.prefix_paths,
+    return resolve_game_gse_runtime_domain(
+        game,
+        sentinel_status=sentinel_status,
+        sentinel_detector=detect_sentinel,
+        sentinel_config_reader=read_sentinel_config,
+        drive_c_discoverer=discover_sentinel_drive_c_paths,
+        app_id_resolver=resolve_local_appid,
+        settings_reader=read_game_steam_settings,
     )
-
-    wine_drive_c_paths = tuple(discovered.drive_c for discovered in discovered_drives)
-
-    app_id_candidates = resolve_local_appid(game)
-
-    if not app_id_candidates:
-        return GameGseResolution(
-            app_id=None,
-            app_id_confidence=None,
-            app_id_source=None,
-            save_resolution=None,
-        )
-
-    settings = read_game_steam_settings(game)
-
-    fallback: GameGseResolution | None = None
-    runtime_match: GameGseResolution | None = None
-
-    for candidate in app_id_candidates:
-        save_resolution = resolve_game_gse_saves(
-            game,
-            candidate.app_id,
-            settings=settings,
-            wine_drive_c_paths=wine_drive_c_paths,
-        )
-
-        current = GameGseResolution(
-            app_id=candidate.app_id,
-            app_id_confidence=candidate.score,
-            app_id_source=candidate.source,
-            save_resolution=save_resolution,
-        )
-
-        if fallback is None:
-            fallback = current
-
-        if save_resolution.achievements_found:
-            return current
-
-        if save_resolution.runtime_found and runtime_match is None:
-            runtime_match = current
-
-    if runtime_match is not None:
-        return runtime_match
-
-    assert fallback is not None
-
-    return fallback
 
 
 def resolve_game_sentinel_integration(
@@ -342,23 +256,13 @@ def resolve_game_sentinel_integration(
     *,
     sentinel_status: SentinelConfigStatus | None = None,
 ) -> GameSentinelIntegrationResolution:
-    if sentinel_status is None:
-        installation = detect_sentinel()
-        sentinel_status = read_sentinel_config(installation.config_path)
-
-    gse_resolution = resolve_game_gse_runtime(
+    return resolve_game_sentinel_integration_domain(
         game,
         sentinel_status=sentinel_status,
-    )
-    coverage = resolve_sentinel_gse_coverage(
-        sentinel_status,
-        gse_resolution.app_id,
-        gse_resolution.save_resolution,
-    )
-
-    return GameSentinelIntegrationResolution(
-        gse_resolution=gse_resolution,
-        coverage=coverage,
+        sentinel_detector=detect_sentinel,
+        sentinel_config_reader=read_sentinel_config,
+        gse_resolver=resolve_game_gse_runtime,
+        coverage_resolver=resolve_sentinel_gse_coverage,
     )
 
 
@@ -379,91 +283,11 @@ def resolve_game_achievement_progress(
     *,
     sentinel_status: SentinelConfigStatus | None = None,
 ) -> GameAchievementResolution:
-    gse_resolution = resolve_game_gse_runtime(
+    return resolve_game_achievement_progress_domain(
         game,
         sentinel_status=sentinel_status,
-    )
-    settings = read_game_steam_settings(game)
-    language = settings.language or "english"
-    metadata_path = game.steam_api.parent / "steam_settings" / "achievements.json"
-    save_resolution = gse_resolution.save_resolution
-    runtime_paths = (
-        tuple(
-            location.achievements_path
-            for location in save_resolution.locations
-            if location.achievements_exists
-        )
-        if save_resolution is not None
-        else ()
-    )
-
-    if not metadata_path.is_file():
-        return GameAchievementResolution(
-            gse_resolution=gse_resolution,
-            metadata_path=metadata_path,
-            language=language,
-            runtime_paths=runtime_paths,
-            reports=(),
-            errors=(),
-        )
-
-    try:
-        metadata_report = read_achievement_report(
-            metadata_path,
-            language=language,
-        )
-    except AchievementDataError as error:
-        return GameAchievementResolution(
-            gse_resolution=gse_resolution,
-            metadata_path=metadata_path,
-            language=language,
-            runtime_paths=runtime_paths,
-            reports=(),
-            errors=(
-                AchievementReadError(
-                    path=metadata_path,
-                    message=str(error),
-                ),
-            ),
-        )
-
-    if not runtime_paths:
-        return GameAchievementResolution(
-            gse_resolution=gse_resolution,
-            metadata_path=metadata_path,
-            language=language,
-            runtime_paths=(),
-            reports=(metadata_report,),
-            errors=(),
-        )
-
-    reports: list[AchievementReport] = []
-    errors: list[AchievementReadError] = []
-
-    for runtime_path in runtime_paths:
-        try:
-            reports.append(
-                read_achievement_report(
-                    metadata_path,
-                    runtime_path,
-                    language=language,
-                )
-            )
-        except AchievementDataError as error:
-            errors.append(
-                AchievementReadError(
-                    path=runtime_path,
-                    message=str(error),
-                )
-            )
-
-    return GameAchievementResolution(
-        gse_resolution=gse_resolution,
-        metadata_path=metadata_path,
-        language=language,
-        runtime_paths=runtime_paths,
-        reports=tuple(reports),
-        errors=tuple(errors),
+        gse_resolver=resolve_game_gse_runtime,
+        settings_reader=read_game_steam_settings,
     )
 
 
@@ -678,6 +502,438 @@ def restore_game_api(game) -> None:
     pause()
 
 
+def _game_profile_table() -> Table:
+    table = Table.grid(padding=(0, 2))
+    table.add_column(style="bold cyan", no_wrap=True)
+    table.add_column(style="white")
+    return table
+
+
+def _profile_display_value(value: object) -> str:
+    return escape(str(value))
+
+
+def _print_game_profile_section(
+    title: str,
+    table: Table,
+    *,
+    border_style: str = "cyan",
+) -> None:
+    console.print(
+        Panel(
+            table,
+            title=title,
+            border_style=border_style,
+            box=box.ROUNDED,
+        )
+    )
+
+
+def render_game_profile(profile: GameProfile) -> None:
+    unavailable = "[dim]— Não disponível[/dim]"
+
+    console.print(
+        Panel.fit(
+            f"[bold]{_profile_display_value(profile.game.name)}[/bold]",
+            title="Perfil do jogo",
+            border_style="cyan",
+            box=box.ROUNDED,
+        )
+    )
+
+    identity = _game_profile_table()
+    if profile.app_id is None:
+        app_id = "[dim]— Não identificado[/dim]"
+    else:
+        app_id_details = [
+            detail
+            for detail in (
+                (
+                    _profile_display_value(profile.app_id_source)
+                    if profile.app_id_source is not None
+                    else None
+                ),
+                (
+                    f"{profile.app_id_confidence}%"
+                    if profile.app_id_confidence is not None
+                    else None
+                ),
+            )
+            if detail is not None
+        ]
+        metadata = f" • {' • '.join(app_id_details)}" if app_id_details else ""
+        app_id = f"[green]✓ {profile.app_id}[/green]{metadata}"
+    identity.add_row("AppID", app_id)
+    identity.add_row("Arquitetura", _profile_display_value(profile.architecture))
+    identity.add_row("Executável", _profile_display_value(profile.game.executable))
+    identity.add_row("Steam API", _profile_display_value(profile.game.steam_api))
+    _print_game_profile_section("Identidade", identity)
+
+    settings = _game_profile_table()
+    settings_snapshot = profile.settings
+    setting_values = (
+        settings_snapshot.account_name,
+        settings_snapshot.account_steamid,
+        settings_snapshot.language,
+        settings_snapshot.ip_country,
+        settings_snapshot.local_save_path,
+        settings_snapshot.saves_folder_name,
+    )
+    if not any(value is not None for value in setting_values):
+        settings.add_row("Status", "[dim]— Nenhuma configuração identificada[/dim]")
+    else:
+        if settings_snapshot.account_name is not None:
+            settings.add_row(
+                "Conta", _profile_display_value(settings_snapshot.account_name)
+            )
+        if settings_snapshot.account_steamid is not None:
+            settings.add_row("SteamID", str(settings_snapshot.account_steamid))
+        if settings_snapshot.language is not None:
+            settings.add_row(
+                "Idioma", _profile_display_value(settings_snapshot.language)
+            )
+        if settings_snapshot.ip_country is not None:
+            settings.add_row(
+                "País", _profile_display_value(settings_snapshot.ip_country)
+            )
+        if settings_snapshot.local_save_path is not None:
+            settings.add_row(
+                "local_save_path",
+                _profile_display_value(settings_snapshot.local_save_path),
+            )
+        if settings_snapshot.saves_folder_name is not None:
+            settings.add_row(
+                "saves_folder_name",
+                _profile_display_value(settings_snapshot.saves_folder_name),
+            )
+    _print_game_profile_section("Settings", settings)
+
+    saves = _game_profile_table()
+    save_resolution = profile.gse.save_resolution
+    if save_resolution is None:
+        saves.add_row("Resolução", "[dim]— GSE save não identificado[/dim]")
+    else:
+        saves.add_row("Origem", _profile_display_value(save_resolution.source))
+        if save_resolution.raw_value is not None:
+            saves.add_row(
+                "Valor configurado",
+                _profile_display_value(save_resolution.raw_value),
+            )
+
+        effective_locations = save_resolution.effective_locations
+        if save_resolution.ambiguous:
+            saves.add_row("Resolução", "[yellow]⚠ Ambígua[/yellow]")
+            saves.add_row("Save efetivo", "[dim]— Não determinado[/dim]")
+        elif effective_locations:
+            saves.add_row("Resolução", "[green]✓ Determinada[/green]")
+            for location in effective_locations:
+                saves.add_row("Save efetivo", _profile_display_value(location.root))
+        else:
+            saves.add_row("Resolução", "[dim]— Caminho não resolvido[/dim]")
+
+        if save_resolution.ambiguous:
+            for index, location in enumerate(save_resolution.locations, start=1):
+                saves.add_row(
+                    f"Save possível #{index}",
+                    _profile_display_value(location.root),
+                )
+    _print_game_profile_section(
+        "Saves / GSE",
+        saves,
+        border_style=(
+            "yellow"
+            if save_resolution is None
+            or save_resolution.ambiguous
+            or not save_resolution.effective_locations
+            else "green"
+        ),
+    )
+
+    achievements = _game_profile_table()
+    achievement_resolution = profile.achievements
+    metadata_error = next(
+        (
+            error
+            for error in achievement_resolution.errors
+            if error.path == achievement_resolution.metadata_path
+        ),
+        None,
+    )
+    if metadata_error is not None:
+        metadata_status = (
+            "[red]✗ Inválida[/red] • "
+            f"{_profile_display_value(achievement_resolution.metadata_path)}"
+        )
+    elif achievement_resolution.metadata_exists:
+        metadata_status = (
+            "[green]✓ Encontrada[/green] • "
+            f"{_profile_display_value(achievement_resolution.metadata_path)}"
+        )
+    else:
+        metadata_status = (
+            "[yellow]⚠ Não encontrada[/yellow] • "
+            f"{_profile_display_value(achievement_resolution.metadata_path)}"
+        )
+    achievements.add_row("Metadata", metadata_status)
+    runtime_reports = tuple(
+        report
+        for report in achievement_resolution.reports
+        if report.runtime_path is not None
+    )
+    metadata_report = next(
+        (
+            report
+            for report in achievement_resolution.reports
+            if report.runtime_path is None
+        ),
+        None,
+    )
+    if runtime_reports:
+        multiple_reports = len(runtime_reports) > 1
+        for index, report in enumerate(runtime_reports, start=1):
+            suffix = f" #{index}" if multiple_reports else ""
+            achievements.add_row(
+                f"Runtime{suffix}", _profile_display_value(report.runtime_path)
+            )
+            achievements.add_row(f"Total{suffix}", str(report.total))
+            achievements.add_row(f"Desbloqueadas{suffix}", str(report.unlocked))
+            achievements.add_row(f"Bloqueadas{suffix}", str(report.locked))
+            achievements.add_row(
+                f"Conclusão{suffix}",
+                f"{report.completion_percentage:.1f}%",
+            )
+    else:
+        achievements.add_row(
+            "Total",
+            str(metadata_report.total) if metadata_report is not None else unavailable,
+        )
+        achievements.add_row("Progresso", "[dim]— Runtime indisponível[/dim]")
+    if achievement_resolution.errors:
+        achievements.add_row(
+            "Erros de leitura",
+            f"[red]✗ {len(achievement_resolution.errors)}[/red]",
+        )
+    _print_game_profile_section(
+        "Achievements",
+        achievements,
+        border_style="green" if runtime_reports else "yellow",
+    )
+
+    sentinel = _game_profile_table()
+    installation = profile.sentinel.installation
+    status = profile.sentinel.status
+    coverage = profile.sentinel.coverage
+    sentinel.add_row(
+        "Instalação",
+        (
+            "[green]✓ Detectada[/green] • "
+            f"{_profile_display_value(installation.executable)}"
+            if installation.installed
+            else "[yellow]⚠ Não detectada[/yellow]"
+        ),
+    )
+    if not status.exists:
+        config_status = "[yellow]⚠ Ausente[/yellow]"
+    elif not status.valid_json or not status.schema_valid:
+        config_status = "[red]✗ Inválida[/red]"
+    else:
+        config_status = "[green]✓ Válida[/green]"
+    sentinel.add_row("Configuração", config_status)
+    sentinel.add_row("Config path", _profile_display_value(status.path))
+    if status.error is not None:
+        sentinel.add_row(
+            "Diagnóstico",
+            f"[red]{_profile_display_value(status.error)}[/red]",
+        )
+
+    if coverage.fully_watched:
+        coverage_status = "[green]✓ Cobertura completa[/green]"
+    elif coverage.partially_watched:
+        coverage_status = "[yellow]⚠ Cobertura parcial[/yellow]"
+    elif coverage.unwatched:
+        coverage_status = "[yellow]⚠ Save efetivo não coberto[/yellow]"
+    elif coverage.effective_save_resolved:
+        coverage_status = "[yellow]⚠ Cobertura não confirmada[/yellow]"
+    else:
+        coverage_status = "[dim]— Sem save efetivo para avaliar[/dim]"
+    sentinel.add_row("Integração GSE", coverage_status)
+    if coverage.recognized_by_sentinel:
+        sentinel.add_row("Runtime Sentinel", "[green]✓ Reconhecido[/green]")
+    _print_game_profile_section(
+        "Sentinel",
+        sentinel,
+        border_style=(
+            "green"
+            if installation.installed and status.configured and coverage.fully_watched
+            else "yellow"
+        ),
+    )
+
+    heroic = _game_profile_table()
+    heroic_provenance = profile.heroic
+    if heroic_provenance.resolved:
+        heroic.add_row("Status", "[green]✓ RESOLVED[/green]")
+        heroic_match = heroic_provenance.effective
+        assert heroic_match is not None
+        heroic.add_row(
+            "Runner",
+            _profile_display_value(heroic_match.installed_game.id.runner),
+        )
+        heroic.add_row(
+            "App name",
+            _profile_display_value(heroic_match.installed_game.id.app_name),
+        )
+        heroic.add_row(
+            "Evidência",
+            (
+                heroic_provenance.strongest_evidence.value
+                if heroic_provenance.strongest_evidence is not None
+                else unavailable
+            ),
+        )
+        heroic.add_row(
+            "Configured prefix",
+            (
+                _profile_display_value(heroic_match.prefix.configured_prefix)
+                if heroic_match.prefix.configured_prefix is not None
+                else unavailable
+            ),
+        )
+        heroic.add_row(
+            "Structural Wine prefix",
+            (
+                _profile_display_value(heroic_match.prefix.structural_wine_prefix)
+                if heroic_match.prefix.structural_wine_prefix is not None
+                else unavailable
+            ),
+        )
+        heroic.add_row("Prefix layout", heroic_match.prefix.layout.name)
+        heroic_border = (
+            "green"
+            if heroic_match.prefix.structural_wine_prefix is not None
+            else "yellow"
+        )
+    elif heroic_provenance.ambiguous:
+        heroic.add_row("Status", "[yellow]⚠ AMBIGUOUS[/yellow]")
+        heroic.add_row("Ownership", "[yellow]Mais de um match Heroic[/yellow]")
+        heroic.add_row("Candidates", str(len(heroic_provenance.candidates)))
+        heroic_border = "yellow"
+    else:
+        heroic.add_row("Status", "[dim]UNKNOWN[/dim]")
+        heroic.add_row("Ownership", "[dim]Heroic ownership não identificado.[/dim]")
+        heroic_border = "cyan"
+    _print_game_profile_section("Heroic", heroic, border_style=heroic_border)
+
+    steam = _game_profile_table()
+    steam_provenance = profile.steam
+    if steam_provenance.resolved:
+        steam.add_row("Status", "[green]✓ RESOLVED[/green]")
+        steam_match = steam_provenance.effective
+        steam_prefix = steam_provenance.prefix
+        assert steam_match is not None
+        assert steam_prefix is not None
+        steam.add_row("AppID efetivo", str(steam_match.installed_game.app_id))
+        steam.add_row(
+            "Library",
+            _profile_display_value(steam_match.installed_game.library_root),
+        )
+        steam.add_row(
+            "Install path",
+            _profile_display_value(steam_match.installed_game.install_path),
+        )
+        steam.add_row(
+            "Evidência",
+            (
+                steam_provenance.strongest_evidence.value
+                if steam_provenance.strongest_evidence is not None
+                else unavailable
+            ),
+        )
+        steam.add_row("Prefix layout", steam_prefix.layout.name)
+        if steam_prefix.structural_wine_prefix is not None:
+            steam.add_row(
+                "Structural Wine prefix",
+                _profile_display_value(steam_prefix.structural_wine_prefix),
+            )
+        steam_border = (
+            "green" if steam_prefix.structural_wine_prefix is not None else "yellow"
+        )
+    elif steam_provenance.ambiguous:
+        steam.add_row("Status", "[yellow]⚠ AMBIGUOUS[/yellow]")
+        steam.add_row("Ownership", "[yellow]Mais de um match Steam[/yellow]")
+        steam.add_row("Candidates", str(len(steam_provenance.candidates)))
+        steam_border = "yellow"
+    else:
+        steam.add_row("Status", "[dim]UNKNOWN[/dim]")
+        steam.add_row("Ownership", "[dim]Steam ownership não identificado.[/dim]")
+        steam_border = "cyan"
+    _print_game_profile_section("Steam", steam, border_style=steam_border)
+
+    prefix = _game_profile_table()
+    consensus = profile.prefix_consensus
+    if consensus.resolved:
+        prefix.add_row("Status", "[green]✓ RESOLVED[/green]")
+        prefix.add_row(
+            "Wine prefix efetivo",
+            _profile_display_value(consensus.effective_wine_prefix),
+        )
+        prefix.add_row(
+            "drive_c efetivo",
+            _profile_display_value(consensus.effective_drive_c),
+        )
+        sources = ", ".join(evidence.source.name for evidence in consensus.evidences)
+        prefix.add_row("Fontes" if len(consensus.evidences) > 1 else "Fonte", sources)
+        prefix_border = "green"
+    elif consensus.conflict:
+        prefix.add_row("Status", "[red]✗ CONFLICT[/red]")
+        prefix.add_row("Resultado", "[red]Nenhuma fonte foi selecionada.[/red]")
+        for evidence in consensus.evidences:
+            prefix.add_row(
+                evidence.source.name,
+                _profile_display_value(evidence.wine_prefix),
+            )
+        prefix_border = "red"
+    else:
+        prefix.add_row("Status", "[dim]UNKNOWN[/dim]")
+        prefix.add_row(
+            "Resultado",
+            "[dim]Nenhuma evidência estrutural de prefixo via GSE ou Heroic "
+            "disponível.[/dim]",
+        )
+        prefix_border = "cyan"
+    _print_game_profile_section(
+        "Prefix Consensus (GSE / Heroic)",
+        prefix,
+        border_style=prefix_border,
+    )
+
+
+def show_game_profile(game: Game) -> None:
+    clear_screen()
+    render_header()
+
+    try:
+        profile = resolve_game_profile(game)
+    except (OSError, ValueError) as error:
+        console.print(
+            Panel.fit(
+                "[red]Não foi possível resolver o perfil do jogo.[/red]\n\n"
+                f"{_profile_display_value(error)}",
+                border_style="red",
+                box=box.ROUNDED,
+            )
+        )
+        pause()
+        return
+
+    render_game_profile(profile)
+    console.print()
+    console.print(
+        "[dim]Somente leitura • nenhum arquivo ou configuração foi alterado.[/dim]"
+    )
+    pause()
+
+
 def show_game_details(game) -> None:
     while True:
         clear_screen()
@@ -731,6 +987,7 @@ def show_game_details(game) -> None:
         choice = questionary.select(
             "O que deseja fazer?",
             choices=[
+                "Ver perfil do jogo",
                 "Verificar achievements / progresso",
                 "Verificar GSE saves",
                 "Verificar Sentinel",
@@ -742,7 +999,10 @@ def show_game_details(game) -> None:
             ],
         ).ask()
 
-        if choice == "Verificar achievements / progresso":
+        if choice == "Ver perfil do jogo":
+            show_game_profile(game)
+
+        elif choice == "Verificar achievements / progresso":
             show_game_achievement_status(game)
 
         elif choice == "Verificar GSE saves":

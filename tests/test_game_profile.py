@@ -25,8 +25,20 @@ from goldberg_manager.game_resolution import (
 )
 from goldberg_manager.gse_saves import GseSaveLocation, GseSaveResolution
 from goldberg_manager.heroic import (
+    HeroicGameConfig,
+    HeroicGameId,
+    HeroicGameMatch,
     HeroicGameProvenance,
+    HeroicInstalledGame,
+    HeroicMatchEvidence,
+    HeroicPrefixLayout,
+    HeroicPrefixState,
     HeroicProvenanceStatus,
+)
+from goldberg_manager.prefix_consensus import (
+    GamePrefixConsensus,
+    GamePrefixConsensusStatus,
+    resolve_game_prefix_consensus,
 )
 from goldberg_manager.scanner import Game
 from goldberg_manager.sentinel import (
@@ -151,10 +163,83 @@ def make_heroic_provenance(
     )
 
 
+def make_prefix_consensus() -> GamePrefixConsensus:
+    return GamePrefixConsensus(
+        status=GamePrefixConsensusStatus.UNKNOWN,
+        evidences=(),
+    )
+
+
+def make_resolved_prefix_provenance(wine_prefix: Path) -> GamePrefixProvenance:
+    candidate = SentinelDriveC(
+        prefix_path=wine_prefix.parent,
+        drive_c=wine_prefix / "drive_c",
+    )
+    return GamePrefixProvenance(
+        status=PrefixProvenanceStatus.RESOLVED,
+        candidates=(candidate,),
+        effective=candidate,
+        evidence=PrefixEvidence.GSE_EFFECTIVE_LOCATION,
+        evidence_path=candidate.drive_c / "users" / "steamuser" / "GSE Saves",
+    )
+
+
+def make_structural_heroic_provenance(
+    layout: HeroicPrefixLayout,
+    wine_prefix: Path | None,
+) -> HeroicGameProvenance:
+    configured_prefix = (
+        wine_prefix.parent
+        if layout is HeroicPrefixLayout.PFX_SUBDIRECTORY and wine_prefix is not None
+        else wine_prefix
+    )
+    if layout is HeroicPrefixLayout.MISSING:
+        configured_prefix = Path("/prefix/missing")
+    config = HeroicGameConfig(
+        configured_prefix=configured_prefix,
+        wine_version_name="proton-test",
+        wine_version_type="proton",
+        wine_binary=Path("/tools/proton"),
+        target_exe=Path("/games/Profile/Game.exe"),
+        explicit=True,
+        source_path=Path("/heroic/GamesConfig/game-id.json"),
+    )
+    installed = HeroicInstalledGame(
+        id=HeroicGameId(runner="sideload", app_name="game-id"),
+        install_path=Path("/games/Profile"),
+        executable=Path("/games/Profile/Game.exe"),
+        platform="Windows",
+        source_path=Path("/heroic/sideload_apps/library.json"),
+    )
+    match = HeroicGameMatch(
+        installed_game=installed,
+        config=config,
+        prefix=HeroicPrefixState(
+            configured_prefix=configured_prefix,
+            structural_wine_prefix=wine_prefix,
+            drive_c=wine_prefix / "drive_c" if wine_prefix is not None else None,
+            layout=layout,
+        ),
+        evidences=(HeroicMatchEvidence.EXACT_EXECUTABLE_PATH,),
+    )
+    return HeroicGameProvenance(
+        config_root=Path("/heroic"),
+        status=HeroicProvenanceStatus.RESOLVED,
+        candidates=(match,),
+        effective=match,
+        strongest_evidence=HeroicMatchEvidence.EXACT_EXECUTABLE_PATH,
+        errors=(),
+    )
+
+
 def make_profile_with_selection(
     app_id: int | None,
     app_id_confidence: int | None,
     app_id_source: str | None,
+    *,
+    prefix_provenance: GamePrefixProvenance | None = None,
+    heroic: HeroicGameProvenance | None = None,
+    prefix_consensus: GamePrefixConsensus | None = None,
 ) -> GameProfile:
     game = make_game(Path("/games/AppID Invariant"))
     status = make_status()
@@ -176,6 +261,16 @@ def make_profile_with_selection(
         gse_resolution=gse,
         coverage=resolve_sentinel_gse_coverage(status, app_id, None),
     )
+    if prefix_provenance is None:
+        prefix_provenance = GamePrefixProvenance(
+            status=PrefixProvenanceStatus.UNKNOWN,
+            candidates=(),
+        )
+    if heroic is None:
+        heroic = make_heroic_provenance()
+    if prefix_consensus is None:
+        prefix_consensus = resolve_game_prefix_consensus(prefix_provenance, heroic)
+
     return GameProfile(
         game=game,
         app_id=app_id,
@@ -188,11 +283,9 @@ def make_profile_with_selection(
             installation=make_installation(status.path),
             integration=integration,
         ),
-        prefix_provenance=GamePrefixProvenance(
-            status=PrefixProvenanceStatus.UNKNOWN,
-            candidates=(),
-        ),
-        heroic=make_heroic_provenance(),
+        prefix_provenance=prefix_provenance,
+        heroic=heroic,
+        prefix_consensus=prefix_consensus,
     )
 
 
@@ -235,6 +328,7 @@ class GameProfileTests(unittest.TestCase):
             candidates=(candidate,),
         )
         heroic = make_heroic_provenance()
+        prefix_consensus = make_prefix_consensus()
 
         with (
             patch(
@@ -273,6 +367,10 @@ class GameProfileTests(unittest.TestCase):
                 "goldberg_manager.game_profile.resolve_game_heroic_provenance",
                 return_value=heroic,
             ) as heroic_resolver,
+            patch(
+                "goldberg_manager.game_profile.resolve_game_prefix_consensus",
+                return_value=prefix_consensus,
+            ) as consensus_resolver,
         ):
             profile = resolve_game_profile(game)
 
@@ -290,6 +388,7 @@ class GameProfileTests(unittest.TestCase):
         self.assertIs(profile.sentinel.coverage.save_resolution, save_resolution)
         self.assertIs(profile.prefix_provenance, prefix_provenance)
         self.assertIs(profile.heroic, heroic)
+        self.assertIs(profile.prefix_consensus, prefix_consensus)
         self.assertEqual(profile.app_id, APP_ID)
         self.assertEqual(profile.app_id_confidence, 100)
         self.assertEqual(profile.app_id_source, "steam_appid.txt")
@@ -323,6 +422,7 @@ class GameProfileTests(unittest.TestCase):
             game,
             config_root=None,
         )
+        consensus_resolver.assert_called_once_with(prefix_provenance, heroic)
 
     def test_profile_represents_missing_appid_honestly(self) -> None:
         game = make_game(Path("/games/Unknown"))
@@ -374,6 +474,7 @@ class GameProfileTests(unittest.TestCase):
         self.assertIsNone(profile.gse.save_resolution)
         self.assertIsNone(profile.sentinel.coverage.app_id)
         self.assertTrue(profile.prefix_provenance.unknown)
+        self.assertTrue(profile.prefix_consensus.unknown)
 
     def test_profile_enforces_single_appid_across_components(self) -> None:
         game = make_game(Path("/games/Inconsistent"))
@@ -408,6 +509,7 @@ class GameProfileTests(unittest.TestCase):
                     candidates=(),
                 ),
                 heroic=make_heroic_provenance(),
+                prefix_consensus=make_prefix_consensus(),
             )
 
     def test_missing_appid_rejects_confidence(self) -> None:
@@ -469,6 +571,7 @@ class GameProfileTests(unittest.TestCase):
                 candidates=(),
             ),
             heroic=make_heroic_provenance(),
+            prefix_consensus=make_prefix_consensus(),
         )
 
         with self.assertRaises(FrozenInstanceError):
@@ -542,6 +645,183 @@ class GameProfileTests(unittest.TestCase):
             self.assertEqual(profile.app_id, APP_ID)
             self.assertTrue(profile.heroic.unknown)
             self.assertEqual(after, before)
+
+
+class GameProfilePrefixConsensusTests(unittest.TestCase):
+    def test_accepts_consensus_from_exact_profile_snapshots(self) -> None:
+        prefix_provenance = make_resolved_prefix_provenance(Path("/prefix/Profile/pfx"))
+        heroic = make_structural_heroic_provenance(
+            HeroicPrefixLayout.PFX_SUBDIRECTORY,
+            Path("/prefix/Profile/pfx"),
+        )
+        consensus = resolve_game_prefix_consensus(prefix_provenance, heroic)
+
+        profile = make_profile_with_selection(
+            APP_ID,
+            100,
+            "steam_appid.txt",
+            prefix_provenance=prefix_provenance,
+            heroic=heroic,
+            prefix_consensus=consensus,
+        )
+
+        self.assertIs(profile.prefix_provenance, prefix_provenance)
+        self.assertIs(profile.heroic, heroic)
+        self.assertIs(profile.prefix_consensus, consensus)
+
+    def test_rejects_equivalent_gse_evidence_from_another_snapshot(self) -> None:
+        prefix_provenance = make_resolved_prefix_provenance(Path("/prefix/Profile/pfx"))
+        external_provenance = make_resolved_prefix_provenance(
+            Path("/prefix/Profile/pfx")
+        )
+        heroic = make_heroic_provenance()
+        consensus = resolve_game_prefix_consensus(external_provenance, heroic)
+        self.assertEqual(prefix_provenance, external_provenance)
+        self.assertIsNot(prefix_provenance, external_provenance)
+
+        with self.assertRaisesRegex(ValueError, "reuse its prefix provenance"):
+            make_profile_with_selection(
+                APP_ID,
+                100,
+                "steam_appid.txt",
+                prefix_provenance=prefix_provenance,
+                heroic=heroic,
+                prefix_consensus=consensus,
+            )
+
+    def test_rejects_equivalent_heroic_match_from_another_snapshot(self) -> None:
+        prefix_provenance = GamePrefixProvenance(
+            status=PrefixProvenanceStatus.UNKNOWN,
+            candidates=(),
+        )
+        heroic = make_structural_heroic_provenance(
+            HeroicPrefixLayout.DIRECT,
+            Path("/prefix/Profile"),
+        )
+        external_heroic = make_structural_heroic_provenance(
+            HeroicPrefixLayout.DIRECT,
+            Path("/prefix/Profile"),
+        )
+        consensus = resolve_game_prefix_consensus(
+            prefix_provenance,
+            external_heroic,
+        )
+        self.assertEqual(heroic.effective, external_heroic.effective)
+        self.assertIsNot(heroic.effective, external_heroic.effective)
+
+        with self.assertRaisesRegex(ValueError, "reuse its effective match"):
+            make_profile_with_selection(
+                APP_ID,
+                100,
+                "steam_appid.txt",
+                prefix_provenance=prefix_provenance,
+                heroic=heroic,
+                prefix_consensus=consensus,
+            )
+
+    def test_rejects_unknown_consensus_that_omits_resolved_gse(self) -> None:
+        prefix_provenance = make_resolved_prefix_provenance(Path("/prefix/Profile/pfx"))
+
+        with self.assertRaisesRegex(ValueError, "omit GSE_RUNTIME"):
+            make_profile_with_selection(
+                APP_ID,
+                100,
+                "steam_appid.txt",
+                prefix_provenance=prefix_provenance,
+                heroic=make_heroic_provenance(),
+                prefix_consensus=make_prefix_consensus(),
+            )
+
+    def test_rejects_consensus_that_omits_structural_heroic(self) -> None:
+        prefix_provenance = GamePrefixProvenance(
+            status=PrefixProvenanceStatus.UNKNOWN,
+            candidates=(),
+        )
+
+        for layout, wine_prefix in (
+            (HeroicPrefixLayout.DIRECT, Path("/prefix/Direct")),
+            (HeroicPrefixLayout.PFX_SUBDIRECTORY, Path("/prefix/Pfx/pfx")),
+        ):
+            with (
+                self.subTest(layout=layout),
+                self.assertRaisesRegex(ValueError, "omit Heroic"),
+            ):
+                make_profile_with_selection(
+                    APP_ID,
+                    100,
+                    "steam_appid.txt",
+                    prefix_provenance=prefix_provenance,
+                    heroic=make_structural_heroic_provenance(
+                        layout,
+                        wine_prefix,
+                    ),
+                    prefix_consensus=make_prefix_consensus(),
+                )
+
+    def test_rejects_evidence_invented_from_external_snapshots(self) -> None:
+        prefix_provenance = GamePrefixProvenance(
+            status=PrefixProvenanceStatus.UNKNOWN,
+            candidates=(),
+        )
+        heroic = make_heroic_provenance()
+        invented_consensuses = (
+            (
+                "GSE_RUNTIME",
+                resolve_game_prefix_consensus(
+                    make_resolved_prefix_provenance(Path("/prefix/External/pfx")),
+                    heroic,
+                ),
+            ),
+            (
+                "Heroic",
+                resolve_game_prefix_consensus(
+                    prefix_provenance,
+                    make_structural_heroic_provenance(
+                        HeroicPrefixLayout.DIRECT,
+                        Path("/prefix/External"),
+                    ),
+                ),
+            ),
+        )
+
+        for source, consensus in invented_consensuses:
+            with (
+                self.subTest(source=source),
+                self.assertRaisesRegex(ValueError, f"invent {source}"),
+            ):
+                make_profile_with_selection(
+                    APP_ID,
+                    100,
+                    "steam_appid.txt",
+                    prefix_provenance=prefix_provenance,
+                    heroic=heroic,
+                    prefix_consensus=consensus,
+                )
+
+    def test_missing_heroic_prefix_accepts_consensus_without_heroic_evidence(
+        self,
+    ) -> None:
+        prefix_provenance = GamePrefixProvenance(
+            status=PrefixProvenanceStatus.UNKNOWN,
+            candidates=(),
+        )
+        heroic = make_structural_heroic_provenance(
+            HeroicPrefixLayout.MISSING,
+            None,
+        )
+        consensus = resolve_game_prefix_consensus(prefix_provenance, heroic)
+
+        profile = make_profile_with_selection(
+            APP_ID,
+            100,
+            "steam_appid.txt",
+            prefix_provenance=prefix_provenance,
+            heroic=heroic,
+            prefix_consensus=consensus,
+        )
+
+        self.assertTrue(profile.prefix_consensus.unknown)
+        self.assertEqual(profile.prefix_consensus.evidences, ())
 
 
 class GameProfileSentinelStateTests(unittest.TestCase):

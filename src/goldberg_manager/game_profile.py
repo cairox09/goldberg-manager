@@ -15,6 +15,11 @@ from .game_resolution import (
 )
 from .gse_saves import GseSaveResolution
 from .heroic import HeroicGameProvenance, resolve_game_heroic_provenance
+from .prefix_consensus import (
+    GamePrefixConsensus,
+    resolve_game_prefix_consensus,
+    validate_game_prefix_consensus_snapshots,
+)
 from .scanner import Game
 from .sentinel import (
     SentinelConfigStatus,
@@ -153,6 +158,7 @@ class GameProfile:
     sentinel: GameProfileSentinelState
     prefix_provenance: GamePrefixProvenance
     heroic: HeroicGameProvenance
+    prefix_consensus: GamePrefixConsensus
 
     def __post_init__(self) -> None:
         _validate_app_id_selection(
@@ -190,6 +196,12 @@ class GameProfile:
             }
             if location_app_ids - {self.app_id}:
                 raise ValueError("All GSE locations must use the profile AppID.")
+
+        validate_game_prefix_consensus_snapshots(
+            self.prefix_consensus,
+            self.prefix_provenance,
+            self.heroic,
+        )
 
     @property
     def architecture(self) -> str:
@@ -288,6 +300,7 @@ def resolve_game_profile(
         game,
         config_root=heroic_config_root,
     )
+    prefix_consensus = resolve_game_prefix_consensus(prefix_provenance, heroic)
 
     return GameProfile(
         game=game,
@@ -303,4 +316,5 @@ def resolve_game_profile(
         ),
         prefix_provenance=prefix_provenance,
         heroic=heroic,
+        prefix_consensus=prefix_consensus,
     )

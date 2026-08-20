@@ -427,6 +427,7 @@ class AchievementGameResolutionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_directory:
             game = make_game(Path(temp_directory) / "game")
             choices = [
+                "Ver perfil do jogo",
                 "Verificar achievements / progresso",
                 "Verificar GSE saves",
                 "Verificar Sentinel",
@@ -439,6 +440,7 @@ class AchievementGameResolutionTests(unittest.TestCase):
 
             with (
                 patch("goldberg_manager.cli.questionary.select") as select,
+                patch("goldberg_manager.cli.show_game_profile") as profile,
                 patch("goldberg_manager.cli.show_game_achievement_status") as progress,
                 patch("goldberg_manager.cli.show_game_gse_status") as gse_status,
                 patch("goldberg_manager.cli.show_game_sentinel_status") as sentinel,
@@ -463,6 +465,7 @@ class AchievementGameResolutionTests(unittest.TestCase):
                 select.call_args_list[0].kwargs["choices"],
                 choices,
             )
+            profile.assert_called_once_with(game)
             progress.assert_called_once_with(game)
             gse_status.assert_called_once_with(game)
             sentinel.assert_called_once_with(game)

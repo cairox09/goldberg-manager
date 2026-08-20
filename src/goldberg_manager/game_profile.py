@@ -14,6 +14,7 @@ from .game_resolution import (
     resolve_game_sentinel_integration,
 )
 from .gse_saves import GseSaveResolution
+from .heroic import HeroicGameProvenance, resolve_game_heroic_provenance
 from .scanner import Game
 from .sentinel import (
     SentinelConfigStatus,
@@ -151,6 +152,7 @@ class GameProfile:
     achievements: GameAchievementResolution
     sentinel: GameProfileSentinelState
     prefix_provenance: GamePrefixProvenance
+    heroic: HeroicGameProvenance
 
     def __post_init__(self) -> None:
         _validate_app_id_selection(
@@ -249,6 +251,7 @@ def resolve_game_profile(
     *,
     sentinel_installation: SentinelInstallation | None = None,
     sentinel_status: SentinelConfigStatus | None = None,
+    heroic_config_root: Path | None = None,
 ) -> GameProfile:
     installation = (
         detect_sentinel() if sentinel_installation is None else sentinel_installation
@@ -281,6 +284,10 @@ def resolve_game_profile(
         sentinel_drive_cs,
         gse.save_resolution,
     )
+    heroic = resolve_game_heroic_provenance(
+        game,
+        config_root=heroic_config_root,
+    )
 
     return GameProfile(
         game=game,
@@ -295,4 +302,5 @@ def resolve_game_profile(
             integration=sentinel_integration,
         ),
         prefix_provenance=prefix_provenance,
+        heroic=heroic,
     )

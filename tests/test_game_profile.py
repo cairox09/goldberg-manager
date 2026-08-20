@@ -24,6 +24,10 @@ from goldberg_manager.game_resolution import (
     GameSentinelIntegrationResolution,
 )
 from goldberg_manager.gse_saves import GseSaveLocation, GseSaveResolution
+from goldberg_manager.heroic import (
+    HeroicGameProvenance,
+    HeroicProvenanceStatus,
+)
 from goldberg_manager.scanner import Game
 from goldberg_manager.sentinel import (
     SentinelConfigStatus,
@@ -134,6 +138,19 @@ def make_candidate(root: Path, name: str) -> SentinelDriveC:
     )
 
 
+def make_heroic_provenance(
+    config_root: Path = Path("/config/heroic"),
+) -> HeroicGameProvenance:
+    return HeroicGameProvenance(
+        config_root=config_root,
+        status=HeroicProvenanceStatus.UNKNOWN,
+        candidates=(),
+        effective=None,
+        strongest_evidence=None,
+        errors=(),
+    )
+
+
 def make_profile_with_selection(
     app_id: int | None,
     app_id_confidence: int | None,
@@ -175,6 +192,7 @@ def make_profile_with_selection(
             status=PrefixProvenanceStatus.UNKNOWN,
             candidates=(),
         ),
+        heroic=make_heroic_provenance(),
     )
 
 
@@ -212,6 +230,11 @@ class GameProfileTests(unittest.TestCase):
             status,
             save_resolution=save_resolution,
         )
+        prefix_provenance = GamePrefixProvenance(
+            status=PrefixProvenanceStatus.UNKNOWN,
+            candidates=(candidate,),
+        )
+        heroic = make_heroic_provenance()
 
         with (
             patch(
@@ -242,6 +265,14 @@ class GameProfileTests(unittest.TestCase):
                 "goldberg_manager.game_profile.resolve_game_sentinel_integration",
                 return_value=integration,
             ) as sentinel_resolver,
+            patch(
+                "goldberg_manager.game_profile.resolve_game_prefix_provenance",
+                return_value=prefix_provenance,
+            ) as prefix_resolver,
+            patch(
+                "goldberg_manager.game_profile.resolve_game_heroic_provenance",
+                return_value=heroic,
+            ) as heroic_resolver,
         ):
             profile = resolve_game_profile(game)
 
@@ -257,6 +288,8 @@ class GameProfileTests(unittest.TestCase):
         self.assertIs(profile.sentinel.integration.gse_resolution, profile.gse)
         self.assertIs(profile.sentinel.status, status)
         self.assertIs(profile.sentinel.coverage.save_resolution, save_resolution)
+        self.assertIs(profile.prefix_provenance, prefix_provenance)
+        self.assertIs(profile.heroic, heroic)
         self.assertEqual(profile.app_id, APP_ID)
         self.assertEqual(profile.app_id_confidence, 100)
         self.assertEqual(profile.app_id_source, "steam_appid.txt")
@@ -282,6 +315,14 @@ class GameProfileTests(unittest.TestCase):
             sentinel_status=status,
             gse_resolution=gse,
         )
+        prefix_resolver.assert_called_once_with(
+            (candidate,),
+            save_resolution,
+        )
+        heroic_resolver.assert_called_once_with(
+            game,
+            config_root=None,
+        )
 
     def test_profile_represents_missing_appid_honestly(self) -> None:
         game = make_game(Path("/games/Unknown"))
@@ -293,6 +334,7 @@ class GameProfileTests(unittest.TestCase):
             status,
             app_id=None,
         )
+        heroic = make_heroic_provenance()
 
         with (
             patch(
@@ -314,6 +356,10 @@ class GameProfileTests(unittest.TestCase):
             patch(
                 "goldberg_manager.game_profile.resolve_game_sentinel_integration",
                 return_value=integration,
+            ),
+            patch(
+                "goldberg_manager.game_profile.resolve_game_heroic_provenance",
+                return_value=heroic,
             ),
         ):
             profile = resolve_game_profile(
@@ -361,6 +407,7 @@ class GameProfileTests(unittest.TestCase):
                     status=PrefixProvenanceStatus.UNKNOWN,
                     candidates=(),
                 ),
+                heroic=make_heroic_provenance(),
             )
 
     def test_missing_appid_rejects_confidence(self) -> None:
@@ -421,6 +468,7 @@ class GameProfileTests(unittest.TestCase):
                 status=PrefixProvenanceStatus.UNKNOWN,
                 candidates=(),
             ),
+            heroic=make_heroic_provenance(),
         )
 
         with self.assertRaises(FrozenInstanceError):
@@ -483,6 +531,7 @@ class GameProfileTests(unittest.TestCase):
                     game,
                     sentinel_installation=installation,
                     sentinel_status=status,
+                    heroic_config_root=root / "missing-heroic",
                 )
 
             after = {
@@ -491,6 +540,7 @@ class GameProfileTests(unittest.TestCase):
                 if path.is_file()
             }
             self.assertEqual(profile.app_id, APP_ID)
+            self.assertTrue(profile.heroic.unknown)
             self.assertEqual(after, before)
 
 

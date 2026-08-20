@@ -352,7 +352,11 @@ class GameProfilePresentationTests(unittest.TestCase):
         self.assertNotIn("Desbloqueadas", rendered)
         self.assertIn("Heroic ownership não identificado", rendered)
         self.assertIn("Steam ownership não identificado", rendered)
-        self.assertIn("Nenhuma evidência estrutural de prefix", rendered)
+        self.assertIn("Prefix Consensus (GSE / Heroic)", rendered)
+        self.assertIn(
+            "Nenhuma evidência estrutural de prefixo via GSE ou Heroic disponível",
+            rendered,
+        )
 
         profile.achievements.metadata_exists = False
         profile.achievements.reports = ()
@@ -475,7 +479,10 @@ class GameProfilePresentationTests(unittest.TestCase):
         self.assertIn("/heroic/Prefixes/Invincible", rendered)
         self.assertIn("Structural Wine prefix", rendered)
         self.assertIn("Não disponível", rendered)
-        self.assertIn("Nenhuma evidência estrutural de prefix", rendered)
+        self.assertIn(
+            "Nenhuma evidência estrutural de prefixo via GSE ou Heroic disponível",
+            rendered,
+        )
 
     def test_brawlhalla_like_profile(self) -> None:
         game = make_game(Path("/steam/steamapps/common/Brawlhalla"), "Brawlhalla")
@@ -498,6 +505,12 @@ class GameProfilePresentationTests(unittest.TestCase):
         self.assertIn("/steam/steamapps/common/Brawlhalla", rendered)
         self.assertIn("PFX_SUBDIRECTORY", rendered)
         self.assertIn("/steam/steamapps/compatdata/291550/pfx", rendered)
+        self.assertIn("Prefix Consensus (GSE / Heroic)", rendered)
+        self.assertIn("UNKNOWN", rendered)
+        self.assertIn(
+            "Nenhuma evidência estrutural de prefixo via GSE ou Heroic disponível",
+            rendered,
+        )
 
 
 class GameProfileActionTests(unittest.TestCase):

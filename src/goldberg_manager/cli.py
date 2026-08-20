@@ -897,11 +897,12 @@ def render_game_profile(profile: GameProfile) -> None:
         prefix.add_row("Status", "[dim]UNKNOWN[/dim]")
         prefix.add_row(
             "Resultado",
-            "[dim]Nenhuma evidência estrutural de prefix disponível.[/dim]",
+            "[dim]Nenhuma evidência estrutural de prefixo via GSE ou Heroic "
+            "disponível.[/dim]",
         )
         prefix_border = "cyan"
     _print_game_profile_section(
-        "Prefix Consensus",
+        "Prefix Consensus (GSE / Heroic)",
         prefix,
         border_style=prefix_border,
     )

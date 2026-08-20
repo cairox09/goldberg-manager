@@ -59,6 +59,29 @@ The project is designed for Linux, Wine and Proton workflows and provides guided
 - Import generated achievements and achievement images.
 - Safely reimport achievements without leaving stale images.
 - Detect and display installed achievement counts.
+- Resolve game-specific achievement runtime files without treating metadata-only states as runtime progress.
+- Display unlocked, locked, partial and completion statistics when runtime progress is available.
+- Keep multiple runtime reports separate and report malformed metadata/runtime files safely.
+
+### Sentinel integration and GSE saves
+
+- Detect Sentinel installations and validate Sentinel configuration files.
+- Resolve game-specific GSE save locations across native Linux paths and Wine/Proton `drive_c` paths.
+- Support `local_save_path`, `saves_folder_name`, runtime detection and explicit effective, possible or ambiguous save locations.
+- Evaluate GSE watcher coverage without confusing Sentinel runtime recognition with effective save coverage.
+- Plan Sentinel repairs before confirmation and create verified backups before writes.
+- Apply atomic, conflict-aware and idempotent Sentinel configuration updates with rollback while preserving unknown configuration fields.
+
+### Game Profiles and launcher provenance
+
+- Build immutable, read-only per-game profiles covering identity, Steam settings, GSE saves, achievements, Sentinel, launcher provenance and prefix evidence.
+- View the complete snapshot through **Ver perfil do jogo** without changing game, launcher or Sentinel files.
+- Discover Heroic installations read-only and identify ownership structurally using runner, `app_name`, executable and install paths.
+- Distinguish Heroic configured prefixes from structural Wine prefixes, including direct, `pfx`, missing, unresolved and ambiguous layouts.
+- Discover native official Steam installations through Steam libraries and validated appmanifests.
+- Identify Steam ownership from structural game/install paths; a matching Steam AppID alone is not proof of Steam ownership.
+- Resolve Proton `compatdata` prefixes only after official Steam ownership is established in the matching library.
+- Resolve prefix consensus from GSE runtime-backed and Heroic evidence, including agreement and explicit conflicts. Steam provenance remains independent and is not a prefix-consensus source in this release.
 
 ### Development
 
@@ -93,7 +116,7 @@ source .venv/bin/activate
 Install the downloaded wheel:
 
 ```bash
-python -m pip install ./goldberg_manager-0.2.0-py3-none-any.whl
+python -m pip install ./goldberg_manager-0.3.0-py3-none-any.whl
 ```
 
 Run:
@@ -169,11 +192,12 @@ python -m twine check dist/*
 
 ## Project status
 
-Goldberg Manager is currently in **alpha development**.
+Goldberg Manager `0.3.0` is the current **pre-stable alpha release**.
 
-Version `0.2.0` significantly expands the project with Steam AppID resolution, guided configuration, `steam_settings`, `steam_interfaces`, GSE metadata generation, achievement management, verified settings snapshots and searchable configuration selectors.
+This release focuses on Sentinel integration, GSE save resolution, achievement runtime progress, read-only Game Profiles, launcher provenance and auditable prefix evidence.
 
-Future releases will continue improving integrations, usability, packaging and platform support before the stable `1.0.0` release.
+Version `0.4.0` is planned as the first Stable public release, with Linux standalone distribution, English, Português (Brasil), and architecture preparation for future GUI and platform work. No release date is promised.
+
 ## License
 
 Goldberg Manager is distributed under the MIT License.

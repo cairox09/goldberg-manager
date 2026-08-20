@@ -31,6 +31,7 @@ from .sentinel import (
 )
 from .sentinel_integration import SentinelGseCoverage
 from .settings import SteamSettingsSnapshot, read_game_steam_settings
+from .steam import SteamGameProvenance, resolve_game_steam_provenance
 
 
 class PrefixProvenanceStatus(str, Enum):
@@ -158,6 +159,7 @@ class GameProfile:
     sentinel: GameProfileSentinelState
     prefix_provenance: GamePrefixProvenance
     heroic: HeroicGameProvenance
+    steam: SteamGameProvenance
     prefix_consensus: GamePrefixConsensus
 
     def __post_init__(self) -> None:
@@ -264,6 +266,7 @@ def resolve_game_profile(
     sentinel_installation: SentinelInstallation | None = None,
     sentinel_status: SentinelConfigStatus | None = None,
     heroic_config_root: Path | None = None,
+    steam_roots: tuple[Path, ...] | None = None,
 ) -> GameProfile:
     installation = (
         detect_sentinel() if sentinel_installation is None else sentinel_installation
@@ -300,6 +303,7 @@ def resolve_game_profile(
         game,
         config_root=heroic_config_root,
     )
+    steam = resolve_game_steam_provenance(game, steam_roots=steam_roots)
     prefix_consensus = resolve_game_prefix_consensus(prefix_provenance, heroic)
 
     return GameProfile(
@@ -316,5 +320,6 @@ def resolve_game_profile(
         ),
         prefix_provenance=prefix_provenance,
         heroic=heroic,
+        steam=steam,
         prefix_consensus=prefix_consensus,
     )

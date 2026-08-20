@@ -49,6 +49,11 @@ from goldberg_manager.sentinel import (
 )
 from goldberg_manager.sentinel_integration import resolve_sentinel_gse_coverage
 from goldberg_manager.settings import SteamSettingsSnapshot
+from goldberg_manager.steam import (
+    SteamGameProvenance,
+    SteamInstalledGames,
+    SteamProvenanceStatus,
+)
 
 APP_ID = 212480
 
@@ -170,6 +175,22 @@ def make_prefix_consensus() -> GamePrefixConsensus:
     )
 
 
+def make_steam_provenance() -> SteamGameProvenance:
+    return SteamGameProvenance(
+        discovery=SteamInstalledGames(
+            steam_roots=(),
+            libraries=(),
+            games=(),
+            errors=(),
+        ),
+        status=SteamProvenanceStatus.UNKNOWN,
+        candidates=(),
+        effective=None,
+        prefix=None,
+        strongest_evidence=None,
+    )
+
+
 def make_resolved_prefix_provenance(wine_prefix: Path) -> GamePrefixProvenance:
     candidate = SentinelDriveC(
         prefix_path=wine_prefix.parent,
@@ -239,6 +260,7 @@ def make_profile_with_selection(
     *,
     prefix_provenance: GamePrefixProvenance | None = None,
     heroic: HeroicGameProvenance | None = None,
+    steam: SteamGameProvenance | None = None,
     prefix_consensus: GamePrefixConsensus | None = None,
 ) -> GameProfile:
     game = make_game(Path("/games/AppID Invariant"))
@@ -268,6 +290,8 @@ def make_profile_with_selection(
         )
     if heroic is None:
         heroic = make_heroic_provenance()
+    if steam is None:
+        steam = make_steam_provenance()
     if prefix_consensus is None:
         prefix_consensus = resolve_game_prefix_consensus(prefix_provenance, heroic)
 
@@ -285,6 +309,7 @@ def make_profile_with_selection(
         ),
         prefix_provenance=prefix_provenance,
         heroic=heroic,
+        steam=steam,
         prefix_consensus=prefix_consensus,
     )
 
@@ -328,6 +353,7 @@ class GameProfileTests(unittest.TestCase):
             candidates=(candidate,),
         )
         heroic = make_heroic_provenance()
+        steam = make_steam_provenance()
         prefix_consensus = make_prefix_consensus()
 
         with (
@@ -368,6 +394,10 @@ class GameProfileTests(unittest.TestCase):
                 return_value=heroic,
             ) as heroic_resolver,
             patch(
+                "goldberg_manager.game_profile.resolve_game_steam_provenance",
+                return_value=steam,
+            ) as steam_resolver,
+            patch(
                 "goldberg_manager.game_profile.resolve_game_prefix_consensus",
                 return_value=prefix_consensus,
             ) as consensus_resolver,
@@ -388,6 +418,7 @@ class GameProfileTests(unittest.TestCase):
         self.assertIs(profile.sentinel.coverage.save_resolution, save_resolution)
         self.assertIs(profile.prefix_provenance, prefix_provenance)
         self.assertIs(profile.heroic, heroic)
+        self.assertIs(profile.steam, steam)
         self.assertIs(profile.prefix_consensus, prefix_consensus)
         self.assertEqual(profile.app_id, APP_ID)
         self.assertEqual(profile.app_id_confidence, 100)
@@ -422,6 +453,7 @@ class GameProfileTests(unittest.TestCase):
             game,
             config_root=None,
         )
+        steam_resolver.assert_called_once_with(game, steam_roots=None)
         consensus_resolver.assert_called_once_with(prefix_provenance, heroic)
 
     def test_profile_represents_missing_appid_honestly(self) -> None:
@@ -460,6 +492,10 @@ class GameProfileTests(unittest.TestCase):
             patch(
                 "goldberg_manager.game_profile.resolve_game_heroic_provenance",
                 return_value=heroic,
+            ),
+            patch(
+                "goldberg_manager.game_profile.resolve_game_steam_provenance",
+                return_value=make_steam_provenance(),
             ),
         ):
             profile = resolve_game_profile(
@@ -509,6 +545,7 @@ class GameProfileTests(unittest.TestCase):
                     candidates=(),
                 ),
                 heroic=make_heroic_provenance(),
+                steam=make_steam_provenance(),
                 prefix_consensus=make_prefix_consensus(),
             )
 
@@ -571,6 +608,7 @@ class GameProfileTests(unittest.TestCase):
                 candidates=(),
             ),
             heroic=make_heroic_provenance(),
+            steam=make_steam_provenance(),
             prefix_consensus=make_prefix_consensus(),
         )
 
@@ -635,6 +673,7 @@ class GameProfileTests(unittest.TestCase):
                     sentinel_installation=installation,
                     sentinel_status=status,
                     heroic_config_root=root / "missing-heroic",
+                    steam_roots=(root / "missing-steam",),
                 )
 
             after = {

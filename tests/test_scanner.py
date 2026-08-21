@@ -1,13 +1,46 @@
 import tempfile
 import unittest
+from dataclasses import fields
 from pathlib import Path
 
+from goldberg_manager.core.game import Game as CoreGame
+from goldberg_manager.scanner import (
+    Game as ScannerGame,
+)
 from goldberg_manager.scanner import (
     detect_emu_config_generator,
     detect_games,
     detect_generate_interfaces,
     discover_game_candidates,
 )
+
+
+class GameCoreModelTests(unittest.TestCase):
+    def test_scanner_game_is_core_game(self) -> None:
+        self.assertIs(ScannerGame, CoreGame)
+
+    def test_core_game_preserves_fields_and_dataclass_behavior(self) -> None:
+        root = Path("/games/Example")
+        values = {
+            "name": "Example",
+            "root_directory": root,
+            "executable": root / "Game.exe",
+            "steam_api": root / "steam_api64.dll",
+            "steam_api_relative_path": Path("steam_api64.dll"),
+            "architecture": "64-bit",
+            "source_directory": root.parent,
+        }
+        game = CoreGame(**values)
+
+        self.assertEqual(
+            tuple(field.name for field in fields(CoreGame)),
+            tuple(values),
+        )
+        self.assertEqual(game, CoreGame(**values))
+        self.assertIn("Game(name='Example'", repr(game))
+
+        game.name = "Changed"
+        self.assertEqual(game.name, "Changed")
 
 
 class ScannerTests(unittest.TestCase):
@@ -30,6 +63,7 @@ class ScannerTests(unittest.TestCase):
 
             game = games[0]
 
+            self.assertIsInstance(game, CoreGame)
             self.assertEqual(game.name, "Resident Evil 2")
             self.assertEqual(game.root_directory, game_root)
             self.assertEqual(game.executable, executable)

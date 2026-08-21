@@ -5,7 +5,7 @@ import json
 import shutil
 from pathlib import Path
 
-from .scanner import Game
+from .core.game import Game
 
 BACKUP_ROOT = Path.home() / ".local" / "share" / "goldberg-manager" / "backups"
 

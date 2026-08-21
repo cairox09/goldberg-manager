@@ -10,8 +10,8 @@ from .achievements import (
     read_achievement_report,
 )
 from .appid import AppIdCandidate, resolve_local_appid
+from .core.game import Game
 from .gse_saves import GseSaveResolution, resolve_game_gse_saves
-from .scanner import Game
 from .sentinel import (
     SentinelConfigStatus,
     SentinelDriveC,

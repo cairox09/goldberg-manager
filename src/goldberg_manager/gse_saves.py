@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from .scanner import Game
+from .core.game import Game
 from .settings import (
     SteamSettingsSnapshot,
     read_game_steam_settings,

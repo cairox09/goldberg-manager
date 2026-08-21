@@ -4,8 +4,8 @@ import configparser
 from dataclasses import dataclass
 from pathlib import Path
 
+from .core.game import Game
 from .generators import generate_steam_appid
-from .scanner import Game
 from .settings_catalog import (
     is_valid_country_code,
     is_valid_steam_language,

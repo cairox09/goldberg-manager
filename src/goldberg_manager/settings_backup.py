@@ -8,7 +8,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .backup import BACKUP_ROOT, calculate_sha256
-from .scanner import Game
+from .core.game import Game
 
 
 @dataclass(slots=True)

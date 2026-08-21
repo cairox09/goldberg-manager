@@ -39,6 +39,7 @@ from .backup import (
     verify_backup,
 )
 from .config import AppConfig, load_config, save_config
+from .core.game import Game
 from .emu_config import (
     EmuConfigError,
     EmuConfigSummary,
@@ -68,7 +69,6 @@ from .game_resolution import (
 )
 from .generators import generate_game_steam_interfaces
 from .scanner import (
-    Game,
     GameCandidate,
     detect_emu_config_generator,
     detect_games,

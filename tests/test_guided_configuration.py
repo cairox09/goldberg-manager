@@ -2,9 +2,16 @@ from __future__ import annotations
 
 import unittest
 
-from goldberg_manager.cli import (
+from goldberg_manager import cli
+from goldberg_manager.application.guided_configuration import (
     GameAssistantStatus,
     get_next_guided_step,
+)
+from goldberg_manager.cli import (
+    GameAssistantStatus as CliGameAssistantStatus,
+)
+from goldberg_manager.cli import (
+    get_next_guided_step as cli_get_next_guided_step,
 )
 
 
@@ -31,6 +38,13 @@ def make_status(
 
 
 class GuidedConfigurationTests(unittest.TestCase):
+    def test_status_remains_available_from_cli(self) -> None:
+        self.assertIs(CliGameAssistantStatus, GameAssistantStatus)
+
+    def test_step_resolver_remains_available_from_cli(self) -> None:
+        self.assertIs(cli_get_next_guided_step, get_next_guided_step)
+        self.assertIs(cli.get_next_guided_step, get_next_guided_step)
+
     def test_ready_game_has_no_next_step(
         self,
     ) -> None:

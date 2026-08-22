@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from .scanner import Game
+from .core.game import Game
 
 _SIDELOAD_LIBRARY = Path("sideload_apps/library.json")
 _LEGENDARY_INSTALLED = Path("legendaryConfig/legendary/installed.json")

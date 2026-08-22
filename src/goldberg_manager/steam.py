@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from .scanner import Game
+from .core.game import Game
 
 STEAM_STATE_FULLY_INSTALLED = 4
 

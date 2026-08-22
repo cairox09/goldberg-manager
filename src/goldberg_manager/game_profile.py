@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from .core.game import Game
 from .game_resolution import (
     GameAchievementResolution,
     GameGseResolution,
@@ -20,7 +21,6 @@ from .prefix_consensus import (
     resolve_game_prefix_consensus,
     validate_game_prefix_consensus_snapshots,
 )
-from .scanner import Game
 from .sentinel import (
     SentinelConfigStatus,
     SentinelDriveC,

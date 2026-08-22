@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 
 from .backup import get_backup_path, verify_backup
-from .scanner import Game
+from .core.game import Game
 
 
 def generate_steam_appid(

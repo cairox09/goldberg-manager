@@ -16,9 +16,11 @@ from .sentinel import (
     SentinelConfigStatus,
     SentinelDriveC,
     SentinelInstallation,
+    SentinelRuntimeSave,
     detect_sentinel,
     discover_sentinel_drive_c_paths,
     read_sentinel_config,
+    resolve_sentinel_runtime_saves,
 )
 from .sentinel_integration import (
     SentinelGseCoverage,
@@ -28,6 +30,82 @@ from .settings import (
     SteamSettingsSnapshot,
     read_game_steam_settings,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class GameSentinelResolution:
+    app_id: int | None
+    app_id_confidence: int | None
+    app_id_source: str | None
+    runtime_saves: tuple[SentinelRuntimeSave, ...]
+
+    @property
+    def runtime_found(self) -> bool:
+        return bool(self.runtime_saves)
+
+
+def resolve_game_sentinel_runtime(
+    game: Game,
+    *,
+    status: SentinelConfigStatus | None = None,
+    sentinel_detector: Callable[[], SentinelInstallation] | None = None,
+    sentinel_config_reader: Callable[[Path], SentinelConfigStatus] | None = None,
+    app_id_resolver: Callable[[Game], list[AppIdCandidate]] | None = None,
+    runtime_saves_resolver: Callable[
+        [SentinelConfigStatus],
+        tuple[SentinelRuntimeSave, ...],
+    ]
+    | None = None,
+) -> GameSentinelResolution:
+    if sentinel_detector is None:
+        sentinel_detector = detect_sentinel
+    if sentinel_config_reader is None:
+        sentinel_config_reader = read_sentinel_config
+    if app_id_resolver is None:
+        app_id_resolver = resolve_local_appid
+    if runtime_saves_resolver is None:
+        runtime_saves_resolver = resolve_sentinel_runtime_saves
+
+    if status is None:
+        installation = sentinel_detector()
+        status = sentinel_config_reader(installation.config_path)
+
+    app_id_candidates = app_id_resolver(game)
+    runtime_saves = runtime_saves_resolver(status)
+
+    for candidate in app_id_candidates:
+        matches = tuple(
+            runtime_save
+            for runtime_save in runtime_saves
+            if runtime_save.app_id == candidate.app_id
+        )
+
+        if not matches:
+            continue
+
+        return GameSentinelResolution(
+            app_id=candidate.app_id,
+            app_id_confidence=candidate.score,
+            app_id_source=candidate.source,
+            runtime_saves=matches,
+        )
+
+    if not app_id_candidates:
+        return GameSentinelResolution(
+            app_id=None,
+            app_id_confidence=None,
+            app_id_source=None,
+            runtime_saves=(),
+        )
+
+    best_candidate = app_id_candidates[0]
+
+    return GameSentinelResolution(
+        app_id=best_candidate.app_id,
+        app_id_confidence=best_candidate.score,
+        app_id_source=best_candidate.source,
+        runtime_saves=(),
+    )
 
 
 @dataclass(frozen=True, slots=True)

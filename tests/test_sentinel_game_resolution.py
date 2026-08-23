@@ -5,7 +5,18 @@ from pathlib import Path
 from unittest.mock import patch
 
 from goldberg_manager.appid import AppIdCandidate
-from goldberg_manager.cli import resolve_game_sentinel_runtime
+from goldberg_manager.cli import (
+    GameSentinelResolution as CliGameSentinelResolution,
+)
+from goldberg_manager.cli import (
+    resolve_game_sentinel_runtime,
+)
+from goldberg_manager.game_resolution import (
+    GameSentinelResolution,
+)
+from goldberg_manager.game_resolution import (
+    resolve_game_sentinel_runtime as resolve_game_sentinel_runtime_domain,
+)
 from goldberg_manager.scanner import Game
 from goldberg_manager.sentinel import (
     SentinelConfigStatus,
@@ -63,6 +74,37 @@ def make_runtime(
 class SentinelGameResolutionTests(
     unittest.TestCase,
 ):
+    def test_resolution_type_remains_available_from_cli(self) -> None:
+        self.assertIs(
+            CliGameSentinelResolution,
+            GameSentinelResolution,
+        )
+
+    def test_domain_resolver_supports_explicit_dependencies(self) -> None:
+        candidate = AppIdCandidate(
+            app_id=212480,
+            name="Sonic All-Stars Racing Transformed",
+            score=95,
+            source="steam_manifest",
+        )
+        runtime_save = make_runtime(212480)
+
+        resolution = resolve_game_sentinel_runtime_domain(
+            make_game(),
+            status=make_status(),
+            app_id_resolver=lambda game: [candidate],
+            runtime_saves_resolver=lambda status: (runtime_save,),
+        )
+
+        self.assertEqual(
+            resolution.app_id,
+            212480,
+        )
+        self.assertIs(
+            resolution.runtime_saves[0],
+            runtime_save,
+        )
+
     def test_prefers_candidate_with_runtime_save(
         self,
     ) -> None:

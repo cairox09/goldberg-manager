@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import subprocess
-from dataclasses import dataclass
 from pathlib import Path
 
 from rich import box
@@ -57,6 +56,7 @@ from .game_resolution import (
     GameAchievementResolution,
     GameGseResolution,
     GameSentinelIntegrationResolution,
+    GameSentinelResolution,
 )
 from .game_resolution import (
     resolve_game_achievement_progress as resolve_game_achievement_progress_domain,
@@ -66,6 +66,9 @@ from .game_resolution import (
 )
 from .game_resolution import (
     resolve_game_sentinel_integration as resolve_game_sentinel_integration_domain,
+)
+from .game_resolution import (
+    resolve_game_sentinel_runtime as resolve_game_sentinel_runtime_domain,
 )
 from .generators import generate_game_steam_interfaces
 from .scanner import (
@@ -78,7 +81,6 @@ from .scanner import (
 from .sentinel import (
     SENTINEL_GSE_EMULATOR_ID,
     SentinelConfigStatus,
-    SentinelRuntimeSave,
     detect_sentinel,
     discover_sentinel_drive_c_paths,
     read_sentinel_config,
@@ -126,68 +128,18 @@ APP_NAME = "Goldberg Manager"
 APP_VERSION = "0.3.0"
 
 
-@dataclass(frozen=True, slots=True)
-class GameSentinelResolution:
-    app_id: int | None
-    app_id_confidence: int | None
-    app_id_source: str | None
-    runtime_saves: tuple[SentinelRuntimeSave, ...]
-
-    @property
-    def runtime_found(self) -> bool:
-        return bool(self.runtime_saves)
-
-
 def resolve_game_sentinel_runtime(
     game: Game,
     *,
     status: SentinelConfigStatus | None = None,
 ) -> GameSentinelResolution:
-    if status is None:
-        installation = detect_sentinel()
-
-        status = read_sentinel_config(
-            installation.config_path,
-        )
-
-    app_id_candidates = resolve_local_appid(game)
-
-    runtime_saves = resolve_sentinel_runtime_saves(
-        status,
-    )
-
-    for candidate in app_id_candidates:
-        matches = tuple(
-            runtime_save
-            for runtime_save in runtime_saves
-            if runtime_save.app_id == candidate.app_id
-        )
-
-        if not matches:
-            continue
-
-        return GameSentinelResolution(
-            app_id=candidate.app_id,
-            app_id_confidence=candidate.score,
-            app_id_source=candidate.source,
-            runtime_saves=matches,
-        )
-
-    if not app_id_candidates:
-        return GameSentinelResolution(
-            app_id=None,
-            app_id_confidence=None,
-            app_id_source=None,
-            runtime_saves=(),
-        )
-
-    best_candidate = app_id_candidates[0]
-
-    return GameSentinelResolution(
-        app_id=best_candidate.app_id,
-        app_id_confidence=best_candidate.score,
-        app_id_source=best_candidate.source,
-        runtime_saves=(),
+    return resolve_game_sentinel_runtime_domain(
+        game,
+        status=status,
+        sentinel_detector=detect_sentinel,
+        sentinel_config_reader=read_sentinel_config,
+        app_id_resolver=resolve_local_appid,
+        runtime_saves_resolver=resolve_sentinel_runtime_saves,
     )
 
 

@@ -8,6 +8,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 APPLICATION_ROOT = PROJECT_ROOT / "src" / "goldberg_manager" / "application"
 CORE_ROOT = PROJECT_ROOT / "src" / "goldberg_manager" / "core"
+PRESENTATION_ROOT = PROJECT_ROOT / "src" / "goldberg_manager" / "presentation"
 
 
 def _import_targets(node: ast.Import | ast.ImportFrom) -> tuple[str, ...]:
@@ -28,6 +29,15 @@ def _is_forbidden_application_import(target: str) -> bool:
     absolute_target = target.lstrip(".")
     parts = absolute_target.split(".")
     return parts[0] in {"cli", "rich", "questionary"} or parts[:2] == [
+        "goldberg_manager",
+        "cli",
+    ]
+
+
+def _is_forbidden_presentation_import(target: str) -> bool:
+    absolute_target = target.lstrip(".")
+    parts = absolute_target.split(".")
+    return parts[0] in {"cli", "questionary"} or parts[:2] == [
         "goldberg_manager",
         "cli",
     ]
@@ -71,6 +81,15 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             _find_import_violations(
                 APPLICATION_ROOT,
                 _is_forbidden_application_import,
+            ),
+            [],
+        )
+
+    def test_presentation_does_not_import_cli_or_questionary(self) -> None:
+        self.assertEqual(
+            _find_import_violations(
+                PRESENTATION_ROOT,
+                _is_forbidden_presentation_import,
             ),
             [],
         )

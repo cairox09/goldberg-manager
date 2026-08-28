@@ -8,6 +8,12 @@ from unittest.mock import patch
 
 from rich.console import Console
 
+from goldberg_manager.application.game_sentinel_repair import (
+    GameSentinelRepairOutcome,
+)
+from goldberg_manager.application.game_sentinel_repair import (
+    resolve_game_sentinel_repair as resolve_game_sentinel_repair_application,
+)
 from goldberg_manager.cli import (
     repair_game_sentinel_integration,
     resolve_game_sentinel_repair,
@@ -169,17 +175,13 @@ def run_repair(
 ):
     output = StringIO()
     test_console = Console(file=output, width=200, color_system=None)
-    resolver_results: list[object] = [plan]
-
-    if result is not None and result.status is SentinelConfigWriteStatus.APPLIED:
-        resolver_results.append(post_error if post_error is not None else post_plan)
 
     with (
         patch(
             "goldberg_manager.cli.resolve_game_sentinel_repair",
-            side_effect=resolver_results,
+            return_value=plan,
         ) as resolver,
-        patch("goldberg_manager.cli.apply_sentinel_config_repair") as writer,
+        patch("goldberg_manager.cli.apply_game_sentinel_repair") as writer,
         patch("goldberg_manager.cli.questionary.confirm") as confirm,
         patch("goldberg_manager.cli.console", test_console),
         patch("goldberg_manager.cli.clear_screen"),
@@ -189,7 +191,11 @@ def run_repair(
         confirm.return_value.ask.return_value = confirmed
 
         if result is not None:
-            writer.return_value = result
+            writer.return_value = GameSentinelRepairOutcome(
+                write_result=result,
+                post_plan=post_plan,
+                post_resolution_error=post_error,
+            )
 
         repair_game_sentinel_integration(game)
 
@@ -197,30 +203,11 @@ def run_repair(
 
 
 class SentinelRepairCliTests(unittest.TestCase):
-    def test_resolver_reuses_game_integration_and_planner(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_directory:
-            game = make_game(Path(temp_directory))
-            plan = make_plan((standard_root(),))
-            integration = unittest.mock.Mock(coverage=plan.coverage)
-
-            with (
-                patch(
-                    "goldberg_manager.cli.resolve_game_sentinel_integration",
-                    return_value=integration,
-                ) as integration_resolver,
-                patch(
-                    "goldberg_manager.cli.plan_sentinel_gse_repair",
-                    return_value=plan,
-                ) as planner,
-            ):
-                resolved = resolve_game_sentinel_repair(game)
-
-            self.assertIs(resolved, plan)
-            integration_resolver.assert_called_once_with(
-                game,
-                sentinel_status=None,
-            )
-            planner.assert_called_once_with(plan.coverage)
+    def test_resolver_remains_available_from_cli(self) -> None:
+        self.assertIs(
+            resolve_game_sentinel_repair,
+            resolve_game_sentinel_repair_application,
+        )
 
     def test_no_repair_does_not_confirm_or_call_writer(self) -> None:
         with tempfile.TemporaryDirectory() as temp_directory:
@@ -396,7 +383,7 @@ class SentinelRepairCliTests(unittest.TestCase):
             self.assertIn("cancelada", rendered)
             writer.assert_not_called()
 
-    def test_full_repair_confirmed_calls_writer_without_partial(self) -> None:
+    def test_full_repair_confirmed_delegates_exact_plan_without_partial(self) -> None:
         with tempfile.TemporaryDirectory() as temp_directory:
             game = make_game(Path(temp_directory))
             plan = make_plan((standard_root(),))
@@ -413,7 +400,11 @@ class SentinelRepairCliTests(unittest.TestCase):
                 result=result,
             )
 
-            writer.assert_called_once_with(plan, allow_partial=False)
+            writer.assert_called_once_with(
+                game,
+                plan,
+                allow_partial=False,
+            )
 
     def test_partial_repair_cancel_is_explicit_and_defaults_false(self) -> None:
         with tempfile.TemporaryDirectory() as temp_directory:
@@ -433,7 +424,7 @@ class SentinelRepairCliTests(unittest.TestCase):
             self.assertFalse(confirm.call_args.kwargs["default"])
             writer.assert_not_called()
 
-    def test_partial_repair_confirmed_calls_writer_with_partial(self) -> None:
+    def test_partial_repair_confirmed_delegates_exact_plan_with_partial(self) -> None:
         with tempfile.TemporaryDirectory() as temp_directory:
             game = make_game(Path(temp_directory))
             plan = make_plan((standard_root(), Path("/games/custom/saves")))
@@ -451,7 +442,11 @@ class SentinelRepairCliTests(unittest.TestCase):
                 result=result,
             )
 
-            writer.assert_called_once_with(plan, allow_partial=True)
+            writer.assert_called_once_with(
+                game,
+                plan,
+                allow_partial=True,
+            )
 
     def test_applied_shows_added_prefixes_and_backup(self) -> None:
         prefix = Path("/games/Game/pfx")
@@ -558,7 +553,7 @@ class SentinelRepairCliTests(unittest.TestCase):
                 post_plan=post_plan,
             )
 
-            self.assertEqual(resolver.call_count, 2)
+            resolver.assert_called_once_with(game)
             self.assertIn("Estado pós-operação", rendered)
             self.assertIn("Fully watched", rendered)
             self.assertIn("Reparo necessário", rendered)
@@ -584,7 +579,7 @@ class SentinelRepairCliTests(unittest.TestCase):
                 post_plan=post_plan,
             )
 
-            self.assertEqual(resolver.call_count, 2)
+            resolver.assert_called_once_with(game)
             self.assertIn("Estado pós-operação", rendered)
             self.assertIn("save customizado fora do layout observado", rendered)
             self.assertIn("Reparo necessário", rendered)
@@ -606,7 +601,7 @@ class SentinelRepairCliTests(unittest.TestCase):
                 post_error=RuntimeError("consulta indisponível"),
             )
 
-            self.assertEqual(resolver.call_count, 2)
+            resolver.assert_called_once_with(game)
             self.assertIn("não foi possível reconsultar", rendered)
             self.assertIn("consulta indisponível", rendered)
 

@@ -75,6 +75,7 @@ from .game_resolution import (
     resolve_game_sentinel_runtime as resolve_game_sentinel_runtime_domain,
 )
 from .generators import generate_game_steam_interfaces
+from .presentation.i18n import Translations, load_translations
 from .presentation.rich_views import render_game_profile as render_game_profile_view
 from .scanner import (
     GameCandidate,
@@ -240,30 +241,45 @@ def render_header() -> None:
     console.print(panel)
 
 
-def render_menu() -> None:
+def render_menu(*, translations: Translations | None = None) -> None:
+    if translations is None:
+        translations = load_translations()
     table = Table.grid(padding=(0, 2))
     table.add_column(justify="right", style="bold cyan", no_wrap=True)
     table.add_column(style="white")
 
     for key, label in MENU_ITEMS:
-        table.add_row(key, label)
+        table.add_row(key, Text(translations.gettext(label)))
 
     console.print(
-        Panel(table, title="Menu principal", border_style="blue", box=box.ROUNDED)
+        Panel(
+            table,
+            title=Text(translations.gettext("Menu principal")),
+            border_style="blue",
+            box=box.ROUNDED,
+        )
     )
 
 
-def ask_menu_choice() -> str:
-    choices = [f"{key} - {label}" for key, label in MENU_ITEMS]
+def ask_menu_choice(*, translations: Translations | None = None) -> str:
+    if translations is None:
+        translations = load_translations()
+    choices = [
+        questionary.Choice(
+            title=f"{key} - {translations.gettext(label)}",
+            value=key,
+        )
+        for key, label in MENU_ITEMS
+    ]
     answer = questionary.select(
-        "Escolha uma ação:",
+        translations.gettext("Escolha uma ação:"),
         choices=choices,
         use_shortcuts=True,
         use_arrow_keys=True,
     ).ask()
     if not answer:
         return "9"
-    return answer.split(" - ", 1)[0].strip()
+    return answer
 
 
 def pause(message: str = "Pressione Enter para continuar...") -> None:

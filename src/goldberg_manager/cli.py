@@ -124,11 +124,11 @@ from .settings_catalog import (
     get_country_choices,
     prioritize_setting_choices,
 )
+from .version import APP_VERSION
 
 AchievementReadError = _AchievementReadError
 
 APP_NAME = "Goldberg Manager"
-APP_VERSION = "0.3.0"
 
 
 def resolve_game_sentinel_runtime(

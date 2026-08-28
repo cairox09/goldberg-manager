@@ -25,6 +25,10 @@ from .appid_cache import (
     get_cached_appid_search,
     save_appid_search_cache,
 )
+from .application.game_sentinel_repair import (
+    apply_game_sentinel_repair,
+    resolve_game_sentinel_repair,
+)
 from .application.guided_configuration import (
     GameAssistantStatus,
     get_next_guided_step,
@@ -92,7 +96,6 @@ from .sentinel_config_writer import (
     SentinelConfigWriteReason,
     SentinelConfigWriteResult,
     SentinelConfigWriteStatus,
-    apply_sentinel_config_repair,
 )
 from .sentinel_integration import (
     resolve_sentinel_gse_coverage,
@@ -101,7 +104,6 @@ from .sentinel_repair import (
     SentinelRepairConfigState,
     SentinelRepairKind,
     SentinelRepairPlan,
-    plan_sentinel_gse_repair,
 )
 from .settings import (
     SteamUserSettings,
@@ -173,18 +175,6 @@ def resolve_game_sentinel_integration(
         gse_resolver=resolve_game_gse_runtime,
         coverage_resolver=resolve_sentinel_gse_coverage,
     )
-
-
-def resolve_game_sentinel_repair(
-    game: Game,
-    *,
-    sentinel_status: SentinelConfigStatus | None = None,
-) -> SentinelRepairPlan:
-    integration = resolve_game_sentinel_integration(
-        game,
-        sentinel_status=sentinel_status,
-    )
-    return plan_sentinel_gse_repair(integration.coverage)
 
 
 def resolve_game_achievement_progress(
@@ -2225,27 +2215,28 @@ def repair_game_sentinel_integration(
         pause()
         return
 
-    result = apply_sentinel_config_repair(
+    outcome = apply_game_sentinel_repair(
+        game,
         plan,
         allow_partial=partial,
     )
+    result = outcome.write_result
     console.print()
     show_sentinel_config_write_result(result)
 
     if result.status is SentinelConfigWriteStatus.APPLIED:
         console.print()
 
-        try:
-            post_plan = resolve_game_sentinel_repair(game)
-        except Exception as error:  # noqa: BLE001 - post-write feedback must not crash
+        if outcome.post_resolution_error is not None:
             console.print(
                 "[yellow]A alteração foi aplicada, mas não foi possível "
-                f"reconsultar a integração: {error}[/yellow]"
+                "reconsultar a integração: "
+                f"{outcome.post_resolution_error}[/yellow]"
             )
-        else:
+        elif outcome.post_plan is not None:
             _show_sentinel_repair_plan(
                 game,
-                post_plan,
+                outcome.post_plan,
                 title="Sentinel • Estado pós-operação",
             )
 

@@ -561,7 +561,7 @@ class GameProfileActionTests(unittest.TestCase):
 
     def test_action_is_read_only_and_does_not_launch_subprocesses(self) -> None:
         writer_names = (
-            "apply_sentinel_config_repair",
+            "apply_game_sentinel_repair",
             "backup_game",
             "create_steam_settings_backup",
             "generate_game_steam_interfaces",

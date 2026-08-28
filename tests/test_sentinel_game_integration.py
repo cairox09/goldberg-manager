@@ -183,7 +183,8 @@ def render_integration(
         patch("goldberg_manager.cli.detect_sentinel", return_value=installation),
         patch("goldberg_manager.cli.read_sentinel_config", return_value=status),
         patch(
-            "goldberg_manager.cli.resolve_game_sentinel_integration",
+            "goldberg_manager.application.game_sentinel_repair."
+            "resolve_game_sentinel_integration",
             return_value=resolution,
         ) as resolver,
         patch("goldberg_manager.cli.console", test_console),

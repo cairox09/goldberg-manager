@@ -9,6 +9,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 APPLICATION_ROOT = PROJECT_ROOT / "src" / "goldberg_manager" / "application"
 CORE_ROOT = PROJECT_ROOT / "src" / "goldberg_manager" / "core"
 PRESENTATION_ROOT = PROJECT_ROOT / "src" / "goldberg_manager" / "presentation"
+VERSION_MODULE = PROJECT_ROOT / "src" / "goldberg_manager" / "version.py"
 
 
 def _import_targets(node: ast.Import | ast.ImportFrom) -> tuple[str, ...]:
@@ -54,13 +55,25 @@ def _is_forbidden_core_import(target: str) -> bool:
     )
 
 
+def _is_forbidden_version_import(target: str) -> bool:
+    absolute_target = target.lstrip(".")
+    parts = absolute_target.split(".")
+    return target.startswith(".") or parts[0] in {
+        "goldberg_manager",
+        "questionary",
+        "rich",
+    }
+
+
 def _find_import_violations(
     root: Path,
     is_forbidden: Callable[[str], bool],
 ) -> list[str]:
     violations: list[str] = []
 
-    for path in sorted(root.rglob("*.py")):
+    paths = sorted(root.rglob("*.py")) if root.is_dir() else [root]
+
+    for path in paths:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
         for node in ast.walk(tree):
@@ -97,6 +110,12 @@ class ArchitectureBoundaryTests(unittest.TestCase):
     def test_core_does_not_import_outer_layers_or_ui(self) -> None:
         self.assertEqual(
             _find_import_violations(CORE_ROOT, _is_forbidden_core_import),
+            [],
+        )
+
+    def test_version_does_not_import_project_or_ui_modules(self) -> None:
+        self.assertEqual(
+            _find_import_violations(VERSION_MODULE, _is_forbidden_version_import),
             [],
         )
 

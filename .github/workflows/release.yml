@@ -68,7 +68,7 @@ jobs:
           import os
           import tomllib
 
-          from goldberg_manager.cli import APP_VERSION
+          from goldberg_manager.version import APP_VERSION
 
           tag_version = os.environ["GITHUB_REF_NAME"].removeprefix("v")
 

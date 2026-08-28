@@ -49,6 +49,12 @@ goldberg-manager = "goldberg_manager.cli:start"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"goldberg_manager.presentation" = [
+    "locales/*/LC_MESSAGES/*.po",
+    "locales/*/LC_MESSAGES/*.mo",
+]
+
 [project.urls]
 Homepage = "https://github.com/cairox09/goldberg-manager"
 Repository = "https://github.com/cairox09/goldberg-manager"

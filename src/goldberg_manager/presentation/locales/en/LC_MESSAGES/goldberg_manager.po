@@ -1,0 +1,44 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: Goldberg Manager 0.3.0\n"
+"PO-Revision-Date: 2026-08-28 00:00+0000\n"
+"Last-Translator: Goldberg Manager contributors\n"
+"Language-Team: English\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Detectar jogos"
+msgstr "Detect games"
+
+msgid "Configurar Goldberg/GBE para um jogo"
+msgstr "Configure Goldberg/GBE for a game"
+
+msgid "Gerar steam_interfaces"
+msgstr "Generate steam_interfaces"
+
+msgid "Gerenciar steam_settings"
+msgstr "Manage steam_settings"
+
+msgid "Backup do jogo"
+msgstr "Back up game"
+
+msgid "Restaurar backup"
+msgstr "Restore backup"
+
+msgid "Abrir pasta do jogo"
+msgstr "Open game folder"
+
+msgid "Configurações"
+msgstr "Settings"
+
+msgid "Sair"
+msgstr "Exit"
+
+msgid "Menu principal"
+msgstr "Main menu"
+
+msgid "Escolha uma ação:"
+msgstr "Choose an action:"

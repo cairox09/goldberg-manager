@@ -29,10 +29,12 @@ def _import_targets(node: ast.Import | ast.ImportFrom) -> tuple[str, ...]:
 def _is_forbidden_application_import(target: str) -> bool:
     absolute_target = target.lstrip(".")
     parts = absolute_target.split(".")
-    return parts[0] in {"cli", "rich", "questionary"} or parts[:2] == [
-        "goldberg_manager",
-        "cli",
-    ]
+    forbidden_modules = {"cli", "presentation", "questionary", "rich"}
+    return parts[0] in forbidden_modules or (
+        len(parts) >= 2
+        and parts[0] == "goldberg_manager"
+        and parts[1] in forbidden_modules
+    )
 
 
 def _is_forbidden_presentation_import(target: str) -> bool:
@@ -47,7 +49,14 @@ def _is_forbidden_presentation_import(target: str) -> bool:
 def _is_forbidden_core_import(target: str) -> bool:
     absolute_target = target.lstrip(".")
     parts = absolute_target.split(".")
-    forbidden_modules = {"application", "cli", "questionary", "rich", "scanner"}
+    forbidden_modules = {
+        "application",
+        "cli",
+        "presentation",
+        "questionary",
+        "rich",
+        "scanner",
+    }
     return parts[0] in forbidden_modules or (
         len(parts) >= 2
         and parts[0] == "goldberg_manager"

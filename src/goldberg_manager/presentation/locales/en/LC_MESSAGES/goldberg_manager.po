@@ -43,6 +43,12 @@ msgstr "Main menu"
 msgid "Escolha uma ação:"
 msgstr "Choose an action:"
 
+msgid "Selecione um jogo:"
+msgstr "Select a game:"
+
+msgid "Voltar"
+msgstr "Back"
+
 msgid "Perfil do jogo"
 msgstr "Game profile"
 

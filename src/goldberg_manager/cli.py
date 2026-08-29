@@ -568,31 +568,47 @@ def get_detected_games(config: AppConfig) -> list[Game] | None:
 def select_game(
     games: list[Game],
     message: str = "Selecione um jogo:",
+    *,
+    translations: Translations | None = None,
 ) -> Game | None:
+    if translations is None:
+        translations = load_translations()
+
     choices = [
-        f"{index} - {game.name} [{game.architecture}]"
-        for index, game in enumerate(games, start=1)
+        questionary.Choice(
+            title=f"{index + 1} - {game.name} [{game.architecture}]",
+            value=index,
+        )
+        for index, game in enumerate(games)
     ]
 
-    choices.append("Voltar")
+    choices.append(
+        questionary.Choice(
+            title=translations.gettext("Voltar"),
+            value="back",
+        )
+    )
 
     selected = questionary.select(
-        message,
+        translations.gettext(message),
         choices=choices,
     ).ask()
 
-    if selected is None or selected == "Voltar":
+    if selected is None:
         return None
 
-    index = int(selected.split(" - ", 1)[0]) - 1
+    if selected == "back":
+        return None
 
-    return games[index]
+    return games[selected]
 
 
 def get_menu_game(
     config: AppConfig,
     game: Game | None,
     message: str,
+    *,
+    translations: Translations | None = None,
 ) -> Game | None:
     if game is not None:
         return game
@@ -605,6 +621,7 @@ def get_menu_game(
     return select_game(
         games,
         message,
+        translations=translations,
     )
 
 

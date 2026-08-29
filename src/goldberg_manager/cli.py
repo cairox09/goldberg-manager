@@ -594,7 +594,10 @@ def show_game_details(
             )
 
         elif choice == "sentinel_integration":
-            show_game_sentinel_integration_status(game)
+            show_game_sentinel_integration_status(
+                game,
+                translations=translations,
+            )
 
         elif choice == "sentinel_repair":
             repair_game_sentinel_integration(game)
@@ -1927,7 +1930,118 @@ _SENTINEL_REPAIR_KIND_LABELS = {
 def _add_sentinel_repair_rows(
     table: Table,
     plan: SentinelRepairPlan,
+    *,
+    translations: Translations | None = None,
 ) -> None:
+    if translations is not None:
+
+        def message(text: str) -> str:
+            return translations.gettext(text)
+
+        def status_text(symbol: str, text: str, style: str) -> Text:
+            status = Text()
+            status.append(symbol, style=style)
+            status.append(" ", style=style)
+            status.append(message(text), style=style)
+            return status
+
+        def indexed_label(text: str, index: int | None = None) -> Text:
+            label = Text(message(text))
+            if index is not None:
+                label.append(" #")
+                label.append(str(index))
+            return label
+
+        if not plan.coverage.effective_save_resolved:
+            save_resolution = plan.coverage.save_resolution
+            unknown = status_text(
+                "⚠"
+                if save_resolution is not None and save_resolution.ambiguous
+                else "—",
+                (
+                    "Não determinado / ambíguo"
+                    if save_resolution is not None and save_resolution.ambiguous
+                    else "Não determinado"
+                ),
+                "yellow"
+                if save_resolution is not None and save_resolution.ambiguous
+                else "dim",
+            )
+            repair_needed = unknown
+            repairability = unknown
+            fully_watched = unknown
+            requires_gse_change = unknown
+        else:
+            repair_needed = status_text(
+                "⚠" if plan.needs_repair else "✓",
+                "Sim" if plan.needs_repair else "Não",
+                "yellow" if plan.needs_repair else "green",
+            )
+
+            if plan.fully_repairable_via_sentinel_config:
+                repairability = status_text("✓", "Sim", "green")
+            elif plan.partially_repairable_via_sentinel_config:
+                repairability = status_text("⚠", "Parcialmente", "yellow")
+            else:
+                repairability = status_text("✗", "Não", "red")
+
+            fully_watched = status_text(
+                "✓" if plan.coverage.fully_watched else "—",
+                "Sim" if plan.coverage.fully_watched else "Não",
+                "green" if plan.coverage.fully_watched else "dim",
+            )
+            requires_gse_change = status_text(
+                "⚠" if plan.requires_gse_change else "✓",
+                "Sim" if plan.requires_gse_change else "Não",
+                "yellow" if plan.requires_gse_change else "green",
+            )
+
+        table.add_row(Text(), Text())
+        table.add_row(Text(message("Reparo"), style="bold"), Text())
+        table.add_row(Text(message("Reparo necessário")), repair_needed)
+        table.add_row(
+            Text(message("Corrigível apenas no Sentinel")),
+            repairability,
+        )
+        table.add_row(Text(message("Cobertura completa")), fully_watched)
+        table.add_row(Text(message("Requer mudança no GSE")), requires_gse_change)
+
+        if plan.candidate_prefixes:
+            candidate_prefixes = Text("\n").join(
+                Text(str(prefix)) for prefix in plan.candidate_prefixes
+            )
+        else:
+            candidate_prefixes = status_text("—", "Nenhum seguro", "dim")
+
+        table.add_row(
+            Text(message("Prefixos candidatos")),
+            candidate_prefixes,
+        )
+
+        multiple_locations = len(plan.location_plans) > 1
+
+        for index, location_plan in enumerate(plan.location_plans, start=1):
+            location = location_plan.location
+            table.add_row(
+                indexed_label(
+                    "Local de reparo",
+                    index if multiple_locations else None,
+                ),
+                (
+                    Text(str(location.root))
+                    if location is not None
+                    else status_text("—", "Não resolvida", "dim")
+                ),
+            )
+            table.add_row(
+                indexed_label(
+                    "Classificação",
+                    index if multiple_locations else None,
+                ),
+                Text(message(_SENTINEL_REPAIR_KIND_LABELS[location_plan.kind])),
+            )
+        return
+
     if not plan.coverage.effective_save_resolved:
         save_resolution = plan.coverage.save_resolution
         unknown = (
@@ -2092,9 +2206,31 @@ def show_sentinel_config_write_result(
 
 def show_game_sentinel_integration_status(
     game: Game,
+    *,
+    translations: Translations | None = None,
 ) -> None:
     clear_screen()
     render_header()
+
+    if translations is None:
+        translations = load_translations()
+
+    def message(text: str) -> str:
+        return translations.gettext(text)
+
+    def status_text(symbol: str, text: str, style: str) -> Text:
+        status = Text()
+        status.append(symbol, style=style)
+        status.append(" ", style=style)
+        status.append(message(text), style=style)
+        return status
+
+    def indexed_label(text: str, *indexes: int) -> Text:
+        label = Text(message(text))
+        for index in indexes:
+            label.append(" #")
+            label.append(str(index))
+        return label
 
     installation = detect_sentinel()
     sentinel_status = read_sentinel_config(installation.config_path)
@@ -2107,61 +2243,76 @@ def show_game_sentinel_integration_status(
     table = Table.grid(padding=(0, 2))
     table.add_column(style="bold cyan", no_wrap=True)
     table.add_column(style="white")
-    table.add_row("Jogo", game.name)
+
+    table.add_row(Text(message("Jogo")), Text(str(game.name)))
+
+    if coverage.app_id is not None:
+        app_id_status = Text()
+        app_id_status.append("✓", style="green")
+        app_id_status.append(" ", style="green")
+        app_id_status.append(str(coverage.app_id), style="green")
+    else:
+        app_id_status = status_text("⚠", "Não resolvido", "yellow")
+
     table.add_row(
-        "AppID",
-        (
-            f"[green]✓ {coverage.app_id}[/green]"
-            if coverage.app_id is not None
-            else "[yellow]⚠ Não resolvido[/yellow]"
-        ),
+        Text("AppID"),
+        app_id_status,
     )
-    table.add_row("", "")
-    table.add_row("[bold]Sentinel[/bold]", "")
+
+    table.add_row(Text(), Text())
+    table.add_row(Text("Sentinel", style="bold"), Text())
+
+    if installation.installed:
+        installation_status = status_text("✓", "Detectada", "green")
+        installation_status.append(" • ")
+        installation_status.append(str(installation.executable))
+    else:
+        installation_status = status_text("⚠", "Não detectada", "yellow")
+
     table.add_row(
-        "Instalação",
-        (
-            f"[green]✓ Detectada[/green] • {installation.executable}"
-            if installation.installed
-            else "[yellow]⚠ Não detectada[/yellow]"
-        ),
+        Text(message("Instalação")),
+        installation_status,
     )
     table.add_row(
-        "Config existente",
-        (
-            "[green]✓ Sim[/green]"
-            if sentinel_status.exists
-            else "[yellow]⚠ Não[/yellow]"
+        Text(message("Configuração existente")),
+        status_text(
+            "✓" if sentinel_status.exists else "⚠",
+            "Sim" if sentinel_status.exists else "Não",
+            "green" if sentinel_status.exists else "yellow",
         ),
     )
 
     if not sentinel_status.exists:
-        json_status = "[dim]— Não avaliado[/dim]"
-        schema_status = "[dim]— Não avaliado[/dim]"
+        json_status = status_text("—", "Não avaliado", "dim")
+        schema_status = status_text("—", "Não avaliado", "dim")
     elif not sentinel_status.valid_json:
-        json_status = "[red]✗ Inválido[/red]"
-        schema_status = "[dim]— Não avaliado[/dim]"
+        json_status = status_text("✗", "Inválido", "red")
+        schema_status = status_text("—", "Não avaliado", "dim")
     else:
-        json_status = "[green]✓ Válido[/green]"
+        json_status = status_text("✓", "Válido", "green")
         schema_status = (
-            "[green]✓ Válido[/green]"
+            status_text("✓", "Válido", "green")
             if sentinel_status.schema_valid
-            else "[red]✗ Inválido[/red]"
+            else status_text("✗", "Inválido", "red")
         )
 
-    table.add_row("JSON", json_status)
-    table.add_row("Schema", schema_status)
+    table.add_row(Text("JSON"), json_status)
+    table.add_row(Text("Schema"), schema_status)
     table.add_row(
-        "Watcher configurado",
-        (
-            "[green]✓ Sim[/green]"
-            if coverage.watcher_configured
-            else "[yellow]⚠ Não[/yellow]"
+        Text(message("Watcher configurado")),
+        status_text(
+            "✓" if coverage.watcher_configured else "⚠",
+            "Sim" if coverage.watcher_configured else "Não",
+            "green" if coverage.watcher_configured else "yellow",
         ),
     )
     table.add_row(
-        "GSE habilitado",
-        ("[green]✓ Sim[/green]" if coverage.gse_enabled else "[yellow]⚠ Não[/yellow]"),
+        Text(message("GSE habilitado")),
+        status_text(
+            "✓" if coverage.gse_enabled else "⚠",
+            "Sim" if coverage.gse_enabled else "Não",
+            "green" if coverage.gse_enabled else "yellow",
+        ),
     )
 
     gse_notifications = next(
@@ -2174,81 +2325,109 @@ def show_game_sentinel_integration_status(
     )
 
     if gse_notifications is True:
-        notification_status = "[green]✓ Habilitadas[/green]"
+        notification_status = status_text("✓", "Habilitadas", "green")
     elif gse_notifications is False:
-        notification_status = "[yellow]⚠ Desabilitadas[/yellow]"
+        notification_status = status_text("⚠", "Desabilitadas", "yellow")
     else:
-        notification_status = "[dim]— Não disponível[/dim]"
+        notification_status = status_text("—", "Não disponível", "dim")
 
-    table.add_row("Notificações GSE", notification_status)
-    table.add_row("", "")
-    table.add_row("[bold]Reconhecimento[/bold]", "")
+    table.add_row(Text(message("Notificações GSE")), notification_status)
+    table.add_row(Text(), Text())
+    table.add_row(Text(message("Reconhecimento"), style="bold"), Text())
 
     if not coverage.recognized_by_sentinel:
-        sentinel_recognition = "[yellow]⚠ Não[/yellow]"
+        sentinel_recognition = status_text("⚠", "Não", "yellow")
     elif coverage.recognized_by_gse_runtime:
-        sentinel_recognition = "[green]✓ Sim[/green] • runtime GSE"
+        sentinel_recognition = status_text("✓", "Sim", "green")
+        sentinel_recognition.append(" • ")
+        sentinel_recognition.append(message("runtime GSE"))
     elif coverage.legacy_runtime_matches:
-        sentinel_recognition = "[yellow]⚠ Sim[/yellow] • somente Goldberg legacy"
+        sentinel_recognition = status_text("⚠", "Sim", "yellow")
+        sentinel_recognition.append(" • ")
+        sentinel_recognition.append(message("somente Goldberg legacy"))
     else:
-        sentinel_recognition = "[green]✓ Sim[/green]"
+        sentinel_recognition = status_text("✓", "Sim", "green")
 
-    table.add_row("Sentinel", sentinel_recognition)
+    table.add_row(Text("Sentinel"), sentinel_recognition)
     table.add_row(
-        "Runtime GSE",
-        (
-            "[green]✓ Reconhecido[/green]"
-            if coverage.recognized_by_gse_runtime
-            else "[yellow]⚠ Não reconhecido[/yellow]"
+        Text(message("Runtime GSE")),
+        status_text(
+            "✓" if coverage.recognized_by_gse_runtime else "⚠",
+            (
+                "Reconhecido"
+                if coverage.recognized_by_gse_runtime
+                else "Não reconhecido"
+            ),
+            "green" if coverage.recognized_by_gse_runtime else "yellow",
         ),
     )
     table.add_row(
-        "Runtime Goldberg legacy",
-        (
-            "[yellow]⚠ Reconhecido[/yellow]"
-            if coverage.legacy_runtime_matches
-            else "[dim]— Não reconhecido[/dim]"
+        Text(message("Runtime Goldberg legacy")),
+        status_text(
+            "⚠" if coverage.legacy_runtime_matches else "—",
+            "Reconhecido" if coverage.legacy_runtime_matches else "Não reconhecido",
+            "yellow" if coverage.legacy_runtime_matches else "dim",
         ),
     )
-    table.add_row("", "")
-    table.add_row("[bold]Coverage[/bold]", "")
+    table.add_row(Text(), Text())
+    table.add_row(Text(message("Cobertura"), style="bold"), Text())
     save_resolution = coverage.save_resolution
     save_ambiguous = save_resolution is not None and save_resolution.ambiguous
     table.add_row(
-        "Save GSE resolvido",
+        Text(message("Save GSE resolvido")),
         (
-            "[yellow]⚠ Ambíguo[/yellow]"
+            status_text("⚠", "Ambíguo", "yellow")
             if save_ambiguous
-            else "[green]✓ Sim[/green]"
+            else status_text("✓", "Sim", "green")
             if coverage.effective_save_resolved
-            else "[yellow]⚠ Não[/yellow]"
+            else status_text("⚠", "Não", "yellow")
         ),
     )
 
     if coverage.effective_save_resolved:
         table.add_row(
-            "Fully watched",
-            "[green]✓ Sim[/green]" if coverage.fully_watched else "[dim]— Não[/dim]",
-        )
-        table.add_row(
-            "Partially watched",
-            (
-                "[yellow]⚠ Sim[/yellow]"
-                if coverage.partially_watched
-                else "[dim]— Não[/dim]"
+            Text(message("Cobertura completa")),
+            status_text(
+                "✓" if coverage.fully_watched else "—",
+                "Sim" if coverage.fully_watched else "Não",
+                "green" if coverage.fully_watched else "dim",
             ),
         )
         table.add_row(
-            "Unwatched",
-            "[red]✗ Sim[/red]" if coverage.unwatched else "[dim]— Não[/dim]",
+            Text(message("Cobertura parcial")),
+            status_text(
+                "⚠" if coverage.partially_watched else "—",
+                "Sim" if coverage.partially_watched else "Não",
+                "yellow" if coverage.partially_watched else "dim",
+            ),
+        )
+        table.add_row(
+            Text(message("Save efetivo não coberto")),
+            status_text(
+                "✗" if coverage.unwatched else "—",
+                "Sim" if coverage.unwatched else "Não",
+                "red" if coverage.unwatched else "dim",
+            ),
         )
     else:
-        table.add_row("Fully watched", "[dim]— Não determinado[/dim]")
-        table.add_row("Partially watched", "[dim]— Não determinado[/dim]")
-        table.add_row("Unwatched", "[dim]— Não determinado[/dim]")
+        table.add_row(
+            Text(message("Cobertura completa")),
+            status_text("—", "Não determinado", "dim"),
+        )
+        table.add_row(
+            Text(message("Cobertura parcial")),
+            status_text("—", "Não determinado", "dim"),
+        )
+        table.add_row(
+            Text(message("Save efetivo não coberto")),
+            status_text("—", "Não determinado", "dim"),
+        )
 
         if save_ambiguous:
-            table.add_row("Effective root", "[dim]— Não determinado[/dim]")
+            table.add_row(
+                Text(message("Raiz efetiva")),
+                status_text("—", "Não determinado", "dim"),
+            )
 
     if coverage.location_coverages:
         multiple_locations = len(coverage.location_coverages) > 1
@@ -2257,17 +2436,22 @@ def show_game_sentinel_integration_status(
             coverage.location_coverages,
             start=1,
         ):
-            suffix = f" #{index}" if multiple_locations else ""
             table.add_row(
-                f"Effective root{suffix}",
-                str(location_coverage.location.root),
+                indexed_label(
+                    "Raiz efetiva",
+                    *((index,) if multiple_locations else ()),
+                ),
+                Text(str(location_coverage.location.root)),
             )
             table.add_row(
-                f"Cobertura{suffix}",
-                (
-                    "[green]✓ Coberta[/green]"
-                    if location_coverage.covered
-                    else "[red]✗ Não coberta[/red]"
+                indexed_label(
+                    "Cobertura",
+                    *((index,) if multiple_locations else ()),
+                ),
+                status_text(
+                    "✓" if location_coverage.covered else "✗",
+                    "Coberta" if location_coverage.covered else "Não coberta",
+                    "green" if location_coverage.covered else "red",
                 ),
             )
 
@@ -2275,82 +2459,126 @@ def show_game_sentinel_integration_status(
                 location_coverage.matching_roots,
                 start=1,
             ):
-                match_suffix = (
-                    f" #{root_index}"
-                    if len(location_coverage.matching_roots) > 1
-                    else ""
-                )
+                indexes: list[int] = []
+                if multiple_locations:
+                    indexes.append(index)
+                if len(location_coverage.matching_roots) > 1:
+                    indexes.append(root_index)
                 table.add_row(
-                    f"Sentinel match{suffix}{match_suffix}",
-                    str(matching_root.path),
+                    indexed_label("Correspondência no Sentinel", *indexes),
+                    Text(str(matching_root.path)),
                 )
 
     if save_resolution is not None and len(save_resolution.locations) > 1:
         for index, location in enumerate(save_resolution.locations, start=1):
-            table.add_row(f"Possible root #{index}", str(location.root))
+            table.add_row(
+                indexed_label("Raiz possível", index),
+                Text(str(location.root)),
+            )
 
     if coverage.gse_save_roots:
         multiple_roots = len(coverage.gse_save_roots) > 1
 
         for index, save_root in enumerate(coverage.gse_save_roots, start=1):
-            suffix = f" #{index}" if multiple_roots else ""
             table.add_row(
-                f"Sentinel GSE root{suffix}",
-                str(save_root.path),
+                indexed_label(
+                    "Raiz GSE do Sentinel",
+                    *((index,) if multiple_roots else ()),
+                ),
+                Text(str(save_root.path)),
             )
     else:
-        table.add_row("Sentinel GSE roots", "[dim]— Nenhuma derivada[/dim]")
+        table.add_row(
+            Text(message("Raízes GSE do Sentinel")),
+            status_text("—", "Nenhuma derivada", "dim"),
+        )
 
-    _add_sentinel_repair_rows(table, repair_plan)
+    _add_sentinel_repair_rows(
+        table,
+        repair_plan,
+        translations=translations,
+    )
+
+    panel_title = Text("Sentinel")
+    panel_title.append(" • ")
+    panel_title.append(message("Integração GSE"))
 
     console.print(
         Panel(
             table,
-            title="Sentinel • Integração GSE",
+            title=panel_title,
             border_style="green" if coverage.fully_watched else "yellow",
             box=box.ROUNDED,
         )
     )
 
-    diagnostics: list[str] = []
+    diagnostics: list[Text] = []
 
     if not installation.installed:
-        diagnostics.append("O Sentinel não foi detectado neste sistema.")
+        diagnostics.append(Text(message("O Sentinel não foi detectado neste sistema.")))
 
     if not sentinel_status.exists:
-        diagnostics.append("A configuração do Sentinel não foi encontrada.")
+        diagnostics.append(
+            Text(message("A configuração do Sentinel não foi encontrada."))
+        )
     elif not sentinel_status.valid_json:
-        diagnostics.append("A configuração do Sentinel contém JSON inválido.")
+        diagnostics.append(
+            Text(message("A configuração do Sentinel contém JSON inválido."))
+        )
     elif not sentinel_status.schema_valid:
-        diagnostics.append("O schema da configuração do Sentinel é inválido.")
+        diagnostics.append(
+            Text(message("O schema da configuração do Sentinel é inválido."))
+        )
 
     if sentinel_status.configured and not coverage.gse_enabled:
-        diagnostics.append("O Sentinel não possui o emulator GSE habilitado.")
+        diagnostics.append(
+            Text(message("O Sentinel não possui o emulador GSE habilitado."))
+        )
 
     if sentinel_status.configured and not sentinel_status.prefix_paths:
-        diagnostics.append("O watcher do Sentinel não possui prefixes configurados.")
+        diagnostics.append(
+            Text(message("O watcher do Sentinel não possui prefixos configurados."))
+        )
 
     if save_ambiguous:
         if save_resolution is not None and len(save_resolution.runtime_locations) > 1:
             diagnostics.append(
-                "Múltiplos runtimes para este AppID foram encontrados; "
-                "o root efetivo permanece ambíguo."
+                Text(
+                    message(
+                        "Múltiplos runtimes para este AppID foram encontrados; "
+                        "a raiz efetiva permanece ambígua."
+                    )
+                )
             )
         else:
             diagnostics.append(
-                "Há múltiplos roots Wine possíveis e não foi possível determinar "
-                "com segurança qual é usado por este jogo."
+                Text(
+                    message(
+                        "Há múltiplas raízes Wine possíveis e não foi possível "
+                        "determinar com segurança qual é usada por este jogo."
+                    )
+                )
             )
     elif not coverage.effective_save_resolved:
-        diagnostics.append("O save efetivo usado pelo GSE não pôde ser resolvido.")
+        diagnostics.append(
+            Text(message("O save efetivo usado pelo GSE não pôde ser resolvido."))
+        )
     elif coverage.fully_watched:
-        diagnostics.append("Todas as locations efetivas do GSE estão cobertas.")
+        diagnostics.append(
+            Text(message("Todas as localizações efetivas do GSE estão cobertas."))
+        )
     elif coverage.partially_watched:
-        diagnostics.append("A cobertura do Sentinel é parcial.")
-        diagnostics.append("Será necessária uma correção de cobertura do Sentinel.")
+        diagnostics.append(Text(message("A cobertura do Sentinel é parcial.")))
+        diagnostics.append(
+            Text(message("Será necessária uma correção de cobertura do Sentinel."))
+        )
     elif coverage.unwatched:
-        diagnostics.append("O save efetivamente usado pelo GSE não é observado.")
-        diagnostics.append("Será necessária uma correção de cobertura do Sentinel.")
+        diagnostics.append(
+            Text(message("O save efetivamente usado pelo GSE não é observado."))
+        )
+        diagnostics.append(
+            Text(message("Será necessária uma correção de cobertura do Sentinel."))
+        )
 
     if (
         coverage.recognized_by_sentinel
@@ -2358,8 +2586,12 @@ def show_game_sentinel_integration_status(
         and not coverage.effective_save_watched
     ):
         diagnostics.append(
-            "O Sentinel reconhece este AppID em outro runtime, "
-            "mas não está observando o save atualmente usado pelo GSE."
+            Text(
+                message(
+                    "O Sentinel reconhece este AppID em outro runtime, "
+                    "mas não está observando o save atualmente usado pelo GSE."
+                )
+            )
         )
 
     if (
@@ -2368,29 +2600,42 @@ def show_game_sentinel_integration_status(
         and coverage.legacy_runtime_matches
     ):
         diagnostics.append(
-            "O AppID foi reconhecido somente no runtime Goldberg legacy, "
-            "não no runtime GSE atual."
+            Text(
+                message(
+                    "O AppID foi reconhecido somente no runtime Goldberg legacy, "
+                    "não no runtime GSE atual."
+                )
+            )
         )
 
     for location_plan in repair_plan.uncovered_location_plans:
-        diagnostics.append(
-            f"Motivo: {_SENTINEL_REPAIR_KIND_LABELS[location_plan.kind]}."
-        )
+        reason = Text(message("Motivo"))
+        reason.append(": ")
+        reason.append(message(_SENTINEL_REPAIR_KIND_LABELS[location_plan.kind]))
+        reason.append(".")
+        diagnostics.append(reason)
+
+    if diagnostics:
+        diagnostic_content = Text("\n").join(diagnostics)
+    else:
+        diagnostic_content = Text(message("Nenhum problema detectado."))
 
     console.print()
     console.print(
         Panel.fit(
-            "\n".join(diagnostics) if diagnostics else "Nenhum problema detectado.",
-            title="Diagnóstico",
+            diagnostic_content,
+            title=Text(message("Diagnóstico")),
             border_style="green" if coverage.fully_watched else "yellow",
             box=box.ROUNDED,
         )
     )
     console.print()
-    console.print(
-        "[dim]Somente leitura • nenhum arquivo do Sentinel ou save foi alterado.[/dim]"
-    )
-    pause()
+    footer = Text(style="dim")
+    footer.append(message("Somente leitura"))
+    footer.append(" • ")
+    footer.append(message("nenhum arquivo do Sentinel ou save foi alterado."))
+    console.print(footer)
+    pause(message("Pressione Enter para continuar..."))
 
 
 def repair_game_sentinel_integration(

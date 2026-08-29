@@ -579,7 +579,10 @@ def show_game_details(
             show_game_achievement_status(game)
 
         elif choice == "gse_saves":
-            show_game_gse_status(game)
+            show_game_gse_status(
+                game,
+                translations=translations,
+            )
 
         elif choice == "sentinel_status":
             show_game_sentinel_status(
@@ -1575,9 +1578,39 @@ def show_game_achievement_status(
 
 def show_game_gse_status(
     game: Game,
+    *,
+    translations: Translations | None = None,
 ) -> None:
     clear_screen()
     render_header()
+
+    if translations is None:
+        translations = load_translations()
+
+    def message(text: str) -> str:
+        return translations.gettext(text)
+
+    def status_text(
+        symbol: str,
+        text: str,
+        style: str,
+    ) -> Text:
+        status = Text()
+        status.append(symbol, style=style)
+        status.append(" ", style=style)
+        status.append(message(text), style=style)
+        return status
+
+    def indexed_label(
+        text: str,
+        *,
+        index: int | None = None,
+    ) -> Text:
+        label = Text(message(text))
+        if index is not None:
+            label.append(" #")
+            label.append(str(index))
+        return label
 
     installation = detect_sentinel()
 
@@ -1604,19 +1637,19 @@ def show_game_gse_status(
     )
 
     table.add_row(
-        "Jogo",
-        game.name,
+        Text(message("Jogo")),
+        Text(str(game.name)),
     )
 
     if resolution.app_id is None:
         table.add_row(
-            "AppID",
-            "[yellow]⚠ Não resolvido[/yellow]",
+            Text("AppID"),
+            status_text("⚠", "Não resolvido", "yellow"),
         )
 
         table.add_row(
-            "GSE save",
-            "[yellow]⚠ Não foi possível resolver[/yellow]",
+            Text(message("Save do GSE")),
+            status_text("⚠", "Não foi possível resolver", "yellow"),
         )
 
     else:
@@ -1630,11 +1663,15 @@ def show_game_gse_status(
         if resolution.app_id_confidence is not None:
             app_id_details.append(f"{resolution.app_id_confidence}%")
 
-        app_id_metadata = " • " + " • ".join(app_id_details) if app_id_details else ""
+        app_id_status = Text()
+        app_id_status.append(f"✓ {resolution.app_id}", style="green")
+        for detail in app_id_details:
+            app_id_status.append(" • ")
+            app_id_status.append(detail)
 
         table.add_row(
-            "AppID",
-            (f"[green]✓ {resolution.app_id}[/green]{app_id_metadata}"),
+            Text("AppID"),
+            app_id_status,
         )
 
         save_resolution = resolution.save_resolution
@@ -1645,7 +1682,7 @@ def show_game_gse_status(
             "GseSavePath": "GseSavePath",
             "local_save_path": "local_save_path",
             "saves_folder_name": "saves_folder_name",
-            "default": "GSE padrão",
+            "default": message("GSE padrão"),
         }
 
         source_label = source_labels.get(
@@ -1654,20 +1691,20 @@ def show_game_gse_status(
         )
 
         table.add_row(
-            "Origem do save",
-            source_label,
+            Text(message("Origem do save")),
+            Text(str(source_label)),
         )
 
         if save_resolution.raw_value is not None:
             table.add_row(
-                "Valor configurado",
-                save_resolution.raw_value,
+                Text(message("Valor configurado")),
+                Text(str(save_resolution.raw_value)),
             )
 
         if not save_resolution.locations:
             table.add_row(
-                "Resolução",
-                "[yellow]⚠ Caminho não resolvido[/yellow]",
+                Text(message("Resolução")),
+                status_text("⚠", "Caminho não resolvido", "yellow"),
             )
 
             if (
@@ -1675,81 +1712,106 @@ def show_game_gse_status(
                 and not sentinel_status.prefix_paths
             ):
                 table.add_row(
-                    "Motivo provável",
-                    (
-                        "[yellow]Nenhum prefixo Wine/Proton "
-                        "foi encontrado no Sentinel.[/yellow]"
+                    Text(message("Motivo provável")),
+                    Text(
+                        message(
+                            "Nenhum prefixo Wine/Proton foi encontrado no Sentinel."
+                        ),
+                        style="yellow",
                     ),
                 )
 
         elif save_resolution.ambiguous:
             table.add_row(
-                "Resolução",
-                "[yellow]⚠ Ambígua[/yellow]",
+                Text(message("Resolução")),
+                status_text("⚠", "Ambígua", "yellow"),
             )
-            table.add_row("Effective root", "[dim]— Não determinado[/dim]")
+            table.add_row(
+                Text(message("Raiz efetiva")),
+                status_text("—", "Não determinado", "dim"),
+            )
         else:
-            table.add_row("Resolução", "[green]✓ Determinada[/green]")
+            table.add_row(
+                Text(message("Resolução")),
+                status_text("✓", "Determinada", "green"),
+            )
 
             for location in save_resolution.effective_locations:
-                table.add_row("Effective root", str(location.root))
+                table.add_row(
+                    Text(message("Raiz efetiva")),
+                    Text(str(location.root)),
+                )
 
         if save_resolution.locations:
             multiple_locations = len(save_resolution.locations) > 1
 
             for index, location in enumerate(save_resolution.locations, start=1):
-                suffix = f" #{index}" if multiple_locations else ""
-
                 if multiple_locations:
-                    table.add_row(f"Possible root{suffix}", str(location.root))
+                    table.add_row(
+                        indexed_label("Raiz possível", index=index),
+                        Text(str(location.root)),
+                    )
 
-                table.add_row(
-                    f"Possible AppID dir{suffix}"
-                    if multiple_locations
-                    else "AppID dir",
-                    (
-                        f"[green]✓ Existe[/green] • {location.app_directory}"
-                        if location.app_directory_exists
-                        else (
-                            "[yellow]⚠ Ainda não criado[/yellow] • "
-                            f"{location.app_directory}"
-                        )
-                    ),
+                app_directory_exists = location.app_directory_exists
+                app_directory_status = status_text(
+                    "✓" if app_directory_exists else "⚠",
+                    "Existe" if app_directory_exists else "Ainda não criado",
+                    "green" if app_directory_exists else "yellow",
                 )
+                app_directory_status.append(" • ")
+                app_directory_status.append(str(location.app_directory))
 
                 table.add_row(
-                    (
-                        f"Possible achievements.json{suffix}"
+                    indexed_label(
+                        "Diretório possível do AppID"
                         if multiple_locations
-                        else "achievements.json"
+                        else "Diretório do AppID",
+                        index=index if multiple_locations else None,
                     ),
-                    (
-                        f"[green]✓ Encontrado[/green] • {location.achievements_path}"
-                        if location.achievements_exists
-                        else (
-                            "[yellow]⚠ Ainda não criado[/yellow] • "
-                            f"{location.achievements_path}"
-                        )
-                    ),
+                    app_directory_status,
                 )
+
+                achievements_exists = location.achievements_exists
+                achievements_status = status_text(
+                    "✓" if achievements_exists else "⚠",
+                    "Encontrado" if achievements_exists else "Ainda não criado",
+                    "green" if achievements_exists else "yellow",
+                )
+                achievements_status.append(" • ")
+                achievements_status.append(str(location.achievements_path))
+
+                table.add_row(
+                    (
+                        indexed_label(
+                            "Caminho possível de achievements.json",
+                            index=index,
+                        )
+                        if multiple_locations
+                        else Text("achievements.json")
+                    ),
+                    achievements_status,
+                )
+
+    panel_title = Text("GSE")
+    panel_title.append(" • ")
+    panel_title.append(message("Resolução de saves"))
 
     console.print(
         Panel(
             table,
-            title="GSE • Resolução de saves",
+            title=panel_title,
             border_style=("green" if resolution.runtime_found else "yellow"),
             box=box.ROUNDED,
         )
     )
 
-    console.print(
-        "[dim]"
-        "Somente leitura • "
-        "nenhum save ou arquivo de configuração foi alterado."
-        "[/dim]"
-    )
+    footer = Text(style="dim")
+    footer.append(message("Somente leitura"))
+    footer.append(" • ")
+    footer.append(message("nenhum save ou arquivo de configuração foi alterado."))
+    console.print(footer)
 
-    pause()
+    pause(message("Pressione Enter para continuar..."))
 
 
 _SENTINEL_REPAIR_KIND_LABELS = {

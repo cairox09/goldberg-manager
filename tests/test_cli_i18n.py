@@ -367,6 +367,35 @@ class GameDetailsI18nTests(unittest.TestCase):
             translations=translations,
         )
 
+    def test_gse_status_route_propagates_exact_translation_object(self) -> None:
+        game = make_game("Jogo")
+        translations = FakeTranslations("duplicate title")
+
+        with (
+            patch("goldberg_manager.cli.questionary.select") as select,
+            patch("goldberg_manager.cli.show_game_gse_status") as gse_status,
+            patch("goldberg_manager.cli.has_backup", return_value=False),
+            patch("goldberg_manager.cli.clear_screen"),
+            patch("goldberg_manager.cli.render_header"),
+            patch("goldberg_manager.cli.console.print"),
+        ):
+            select.return_value.ask.side_effect = ["gse_saves", "back"]
+
+            show_game_details(game, translations=translations)
+
+        first_choices = select.call_args_list[0].kwargs["choices"]
+        self.assertTrue(
+            all(choice.title == "duplicate title" for choice in first_choices)
+        )
+        self.assertEqual(
+            [choice.value for choice in first_choices],
+            GAME_DETAILS_VALUES,
+        )
+        gse_status.assert_called_once_with(
+            game,
+            translations=translations,
+        )
+
     def test_none_back_and_unknown_values_return_without_action(self) -> None:
         game = make_game("Jogo")
 

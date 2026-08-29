@@ -483,3 +483,35 @@ msgstr "Read-only"
 
 msgid "nenhum save ou arquivo de configuração foi alterado."
 msgstr "no save or configuration file was changed."
+
+msgid "Disponíveis"
+msgstr "Available"
+
+msgid "Parciais"
+msgstr "Partial"
+
+msgid "Runtime sem metadados"
+msgstr "Runtime without metadata"
+
+msgid "Não foi possível resolver o progresso de conquistas."
+msgstr "Could not resolve achievement progress."
+
+#, python-brace-format
+msgid "{count} arquivo encontrado"
+msgstr "{count} file found"
+
+#, python-brace-format
+msgid "{count} arquivos encontrados"
+msgstr "{count} files found"
+
+msgid "Runtime esperado"
+msgstr "Expected runtime"
+
+msgid "Não foi possível ler os metadados."
+msgstr "Could not read metadata."
+
+msgid "Runtime inválido"
+msgstr "Invalid runtime"
+
+msgid "nenhum arquivo de conquistas foi alterado."
+msgstr "no achievement file was changed."

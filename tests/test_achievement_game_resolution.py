@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from io import StringIO
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from rich.console import Console
 
@@ -468,7 +468,7 @@ class AchievementGameResolutionTests(unittest.TestCase):
             profile.assert_called_once_with(game)
             progress.assert_called_once_with(game)
             gse_status.assert_called_once_with(game)
-            sentinel.assert_called_once_with(game)
+            sentinel.assert_called_once_with(game, translations=ANY)
             integration.assert_called_once_with(game)
             repair_integration.assert_called_once_with(game)
             backup.assert_called_once_with(game)

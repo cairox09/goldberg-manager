@@ -515,3 +515,183 @@ msgstr "Invalid runtime"
 
 msgid "nenhum arquivo de conquistas foi alterado."
 msgstr "no achievement file was changed."
+
+msgid "Configuração existente"
+msgstr "Existing configuration"
+
+msgid "Sim"
+msgstr "Yes"
+
+msgid "Não avaliado"
+msgstr "Not evaluated"
+
+msgid "Inválido"
+msgstr "Invalid"
+
+msgid "Válido"
+msgstr "Valid"
+
+msgid "Watcher configurado"
+msgstr "Watcher configured"
+
+msgid "GSE habilitado"
+msgstr "GSE enabled"
+
+msgid "Notificações GSE"
+msgstr "GSE notifications"
+
+msgid "Habilitadas"
+msgstr "Enabled"
+
+msgid "Desabilitadas"
+msgstr "Disabled"
+
+msgid "Reconhecimento"
+msgstr "Recognition"
+
+msgid "runtime GSE"
+msgstr "GSE runtime"
+
+msgid "somente Goldberg legacy"
+msgstr "Goldberg legacy only"
+
+msgid "Runtime GSE"
+msgstr "GSE runtime"
+
+msgid "Não reconhecido"
+msgstr "Not recognized"
+
+msgid "Runtime Goldberg legacy"
+msgstr "Goldberg legacy runtime"
+
+msgid "Cobertura"
+msgstr "Coverage"
+
+msgid "Save GSE resolvido"
+msgstr "GSE save resolved"
+
+msgid "Ambíguo"
+msgstr "Ambiguous"
+
+msgid "Coberta"
+msgstr "Covered"
+
+msgid "Não coberta"
+msgstr "Not covered"
+
+msgid "Correspondência no Sentinel"
+msgstr "Sentinel match"
+
+msgid "Raiz GSE do Sentinel"
+msgstr "Sentinel GSE root"
+
+msgid "Raízes GSE do Sentinel"
+msgstr "Sentinel GSE roots"
+
+msgid "Nenhuma derivada"
+msgstr "None derived"
+
+msgid "Não determinado / ambíguo"
+msgstr "Not determined / ambiguous"
+
+msgid "Parcialmente"
+msgstr "Partially"
+
+msgid "Reparo"
+msgstr "Repair"
+
+msgid "Reparo necessário"
+msgstr "Repair needed"
+
+msgid "Corrigível apenas no Sentinel"
+msgstr "Fixable through Sentinel only"
+
+msgid "Requer mudança no GSE"
+msgstr "Requires a GSE change"
+
+msgid "Prefixos candidatos"
+msgstr "Candidate prefixes"
+
+msgid "Nenhum seguro"
+msgstr "None safe"
+
+msgid "Local de reparo"
+msgstr "Repair location"
+
+msgid "Não resolvida"
+msgstr "Unresolved"
+
+msgid "Classificação"
+msgstr "Classification"
+
+msgid "já coberta"
+msgstr "already covered"
+
+msgid "prefix pode ser adicionado com segurança"
+msgstr "prefix can be added safely"
+
+msgid "prefix já configurado; inconsistência exige diagnóstico"
+msgstr "prefix already configured; inconsistency requires diagnosis"
+
+msgid "save customizado fora do layout observado pelo Sentinel; não é suportado pelo modelo atual"
+msgstr "custom save outside the layout watched by Sentinel; it is not supported by the current model"
+
+msgid "usuário Wine diferente de steamuser não é suportado pelo Sentinel atual"
+msgstr "a Wine user other than steamuser is not supported by the current Sentinel"
+
+msgid "save não resolvido"
+msgstr "unresolved save"
+
+msgid "O Sentinel não foi detectado neste sistema."
+msgstr "Sentinel was not detected on this system."
+
+msgid "A configuração do Sentinel não foi encontrada."
+msgstr "The Sentinel configuration was not found."
+
+msgid "A configuração do Sentinel contém JSON inválido."
+msgstr "The Sentinel configuration contains invalid JSON."
+
+msgid "O schema da configuração do Sentinel é inválido."
+msgstr "The Sentinel configuration schema is invalid."
+
+msgid "O Sentinel não possui o emulador GSE habilitado."
+msgstr "Sentinel does not have the GSE emulator enabled."
+
+msgid "O watcher do Sentinel não possui prefixos configurados."
+msgstr "The Sentinel watcher has no configured prefixes."
+
+msgid "Múltiplos runtimes para este AppID foram encontrados; a raiz efetiva permanece ambígua."
+msgstr "Multiple runtimes were found for this AppID; the effective root remains ambiguous."
+
+msgid "Há múltiplas raízes Wine possíveis e não foi possível determinar com segurança qual é usada por este jogo."
+msgstr "There are multiple possible Wine roots, and it was not possible to determine safely which one is used by this game."
+
+msgid "O save efetivo usado pelo GSE não pôde ser resolvido."
+msgstr "The effective save used by GSE could not be resolved."
+
+msgid "Todas as localizações efetivas do GSE estão cobertas."
+msgstr "All effective GSE locations are covered."
+
+msgid "A cobertura do Sentinel é parcial."
+msgstr "Sentinel coverage is partial."
+
+msgid "Será necessária uma correção de cobertura do Sentinel."
+msgstr "A Sentinel coverage fix will be required."
+
+msgid "O save efetivamente usado pelo GSE não é observado."
+msgstr "The save actually used by GSE is not watched."
+
+msgid "O Sentinel reconhece este AppID em outro runtime, mas não está observando o save atualmente usado pelo GSE."
+msgstr "Sentinel recognizes this AppID in another runtime, but is not watching the save currently used by GSE."
+
+msgid "O AppID foi reconhecido somente no runtime Goldberg legacy, não no runtime GSE atual."
+msgstr "The AppID was recognized only in the Goldberg legacy runtime, not in the current GSE runtime."
+
+msgid "Motivo"
+msgstr "Reason"
+
+msgid "Nenhum problema detectado."
+msgstr "No problems detected."
+
+msgid "nenhum arquivo do Sentinel ou save foi alterado."
+msgstr "no Sentinel file or save was changed."

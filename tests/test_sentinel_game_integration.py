@@ -2,19 +2,23 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
 from rich.console import Console
+from rich.table import Table
 
 from goldberg_manager.cli import (
     GameGseResolution,
     GameSentinelIntegrationResolution,
+    _add_sentinel_repair_rows,
     resolve_game_sentinel_integration,
     show_game_sentinel_integration_status,
 )
 from goldberg_manager.gse_saves import GseSaveLocation, GseSaveResolution
+from goldberg_manager.presentation.i18n import load_translations
 from goldberg_manager.scanner import Game
 from goldberg_manager.sentinel import (
     SENTINEL_GOLDBERG_EMULATOR_ID,
@@ -32,6 +36,11 @@ from goldberg_manager.sentinel_integration import (
 )
 
 APP_ID = 212480
+
+
+class RichLikeTranslations:
+    def gettext(self, message: str) -> str:
+        return f"[red]{message}[/red]"
 
 
 def make_game(root: Path) -> Game:
@@ -158,15 +167,17 @@ def make_integration(
     )
 
 
-def render_integration(
+def run_integration(
     game: Game,
     status: SentinelConfigStatus,
     resolution: GameSentinelIntegrationResolution,
     *,
     installed: bool = True,
-) -> str:
+    executable: Path = Path("/usr/bin/sentinel"),
+    translations=None,
+):
     installation = SentinelInstallation(
-        executable=Path("/usr/bin/sentinel") if installed else None,
+        executable=executable if installed else None,
         config_path=status.path,
         data_directory=Path("/data/sentinel"),
         state_directory=Path("/state/sentinel"),
@@ -178,24 +189,100 @@ def render_integration(
         width=200,
         color_system=None,
     )
+    events: list[str] = []
+
+    def clear() -> None:
+        events.append("clear")
+
+    def header() -> None:
+        events.append("header")
+
+    def detect():
+        events.append("detect")
+        return installation
+
+    def read_config(path):
+        events.append("read_config")
+        return status
+
+    def resolve(selected_game, *, sentinel_status):
+        events.append("resolve")
+        return resolution
+
+    def wait(message):
+        events.append("pause")
 
     with (
-        patch("goldberg_manager.cli.detect_sentinel", return_value=installation),
-        patch("goldberg_manager.cli.read_sentinel_config", return_value=status),
+        patch("goldberg_manager.cli.detect_sentinel", side_effect=detect) as detector,
+        patch(
+            "goldberg_manager.cli.read_sentinel_config",
+            side_effect=read_config,
+        ) as config_reader,
         patch(
             "goldberg_manager.application.game_sentinel_repair."
             "resolve_game_sentinel_integration",
-            return_value=resolution,
+            side_effect=resolve,
         ) as resolver,
         patch("goldberg_manager.cli.console", test_console),
-        patch("goldberg_manager.cli.clear_screen"),
-        patch("goldberg_manager.cli.render_header"),
-        patch("goldberg_manager.cli.pause"),
+        patch("goldberg_manager.cli.clear_screen", side_effect=clear) as clear_screen,
+        patch(
+            "goldberg_manager.cli.render_header", side_effect=header
+        ) as render_header,
+        patch("goldberg_manager.cli.pause", side_effect=wait) as pause,
+        patch(
+            "goldberg_manager.cli._add_sentinel_repair_rows",
+            wraps=_add_sentinel_repair_rows,
+        ) as repair_rows,
+        patch("goldberg_manager.cli.apply_game_sentinel_repair") as repair,
+        patch("goldberg_manager.cli.save_config") as config_writer,
+        patch("goldberg_manager.cli.backup_game") as backup,
+        patch("goldberg_manager.cli.restore_game_backup") as restore,
+        patch("goldberg_manager.cli.generate_game_steam_settings") as settings_writer,
+        patch("goldberg_manager.cli.subprocess.run") as subprocess_run,
     ):
-        show_game_sentinel_integration_status(game)
+        if translations is None:
+            show_game_sentinel_integration_status(game)
+        else:
+            show_game_sentinel_integration_status(game, translations=translations)
 
     resolver.assert_called_once_with(game, sentinel_status=status)
-    return output.getvalue()
+    return output.getvalue(), {
+        "installation": installation,
+        "clear_screen": clear_screen,
+        "render_header": render_header,
+        "detector": detector,
+        "config_reader": config_reader,
+        "resolver": resolver,
+        "pause": pause,
+        "repair_rows": repair_rows,
+        "repair": repair,
+        "config_writer": config_writer,
+        "backup": backup,
+        "restore": restore,
+        "settings_writer": settings_writer,
+        "subprocess_run": subprocess_run,
+        "events": events,
+    }
+
+
+def render_integration(
+    game: Game,
+    status: SentinelConfigStatus,
+    resolution: GameSentinelIntegrationResolution,
+    *,
+    installed: bool = True,
+    executable: Path = Path("/usr/bin/sentinel"),
+    translations=None,
+) -> str:
+    rendered, _ = run_integration(
+        game,
+        status,
+        resolution,
+        installed=installed,
+        executable=executable,
+        translations=translations,
+    )
+    return rendered
 
 
 def rendered_row_value(rendered: str, label: str) -> str:
@@ -295,6 +382,267 @@ class SentinelGameIntegrationTests(unittest.TestCase):
             detector.assert_called_once_with()
             config_reader.assert_called_once_with(installation.config_path)
 
+    def test_portuguese_default_loads_once_and_preserves_read_only_sequence(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            game = make_game(Path(temp_directory) / "game")
+            status = make_status()
+            root = Path(
+                "/games/Game/pfx/drive_c/users/steamuser/AppData/Roaming/GSE Saves"
+            )
+            resolution = make_integration(status, (root,))
+            default_translations = load_translations()
+
+            with patch(
+                "goldberg_manager.cli.load_translations",
+                return_value=default_translations,
+            ) as translations_loader:
+                rendered, mocks = run_integration(game, status, resolution)
+
+        translations_loader.assert_called_once_with()
+        self.assertEqual(
+            mocks["events"],
+            ["clear", "header", "detect", "read_config", "resolve", "pause"],
+        )
+        mocks["clear_screen"].assert_called_once_with()
+        mocks["render_header"].assert_called_once_with()
+        mocks["detector"].assert_called_once_with()
+        mocks["config_reader"].assert_called_once_with(
+            mocks["installation"].config_path
+        )
+        self.assertIs(mocks["resolver"].call_args.kwargs["sentinel_status"], status)
+        mocks["pause"].assert_called_once_with("Pressione Enter para continuar...")
+
+        plan = mocks["repair_rows"].call_args.args[1]
+        self.assertIs(plan.coverage, resolution.coverage)
+        self.assertIs(plan.coverage.sentinel_status, status)
+        self.assertIs(
+            mocks["repair_rows"].call_args.kwargs["translations"],
+            default_translations,
+        )
+        self.assertIn("Configuração existente", rendered)
+        self.assertIn("Cobertura", rendered)
+        self.assertIn("Prefixos candidatos", rendered)
+        self.assertIn(str(APP_ID), rendered)
+        self.assertIn(str(plan.candidate_prefixes[0]), rendered)
+
+        for mutation in (
+            "repair",
+            "config_writer",
+            "backup",
+            "restore",
+            "settings_writer",
+            "subprocess_run",
+        ):
+            mocks[mutation].assert_not_called()
+
+    def test_explicit_english_reuses_translation_and_translates_pause(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            game = make_game(Path(temp_directory) / "game")
+            status = make_status(
+                exists=False,
+                valid_json=False,
+                schema_valid=False,
+                prefixes=(),
+                emulator_ids=(),
+            )
+            translations = load_translations("en")
+
+            with patch("goldberg_manager.cli.load_translations") as loader:
+                rendered, mocks = run_integration(
+                    game,
+                    status,
+                    make_integration(status, (), app_id=None),
+                    installed=False,
+                    translations=translations,
+                )
+
+        loader.assert_not_called()
+        self.assertIs(
+            mocks["repair_rows"].call_args.kwargs["translations"],
+            translations,
+        )
+        mocks["pause"].assert_called_once_with("Press Enter to continue...")
+        for expected in (
+            "Game",
+            "Not detected",
+            "Existing configuration",
+            "Not evaluated",
+            "Unresolved",
+            "GSE notifications",
+            "Not available",
+            "Coverage",
+            "Repair",
+            "Not determined",
+            "The Sentinel configuration was not found.",
+            "Read-only • no Sentinel file or save was changed.",
+        ):
+            self.assertIn(expected, rendered)
+
+    def test_notification_states_are_presented_without_changing_gse_semantics(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            game = make_game(Path(temp_directory) / "game")
+
+            cases = (
+                (make_status(should_notify=True), "Habilitadas"),
+                (make_status(should_notify=False), "Desabilitadas"),
+                (
+                    make_status(emulator_ids=(SENTINEL_GOLDBERG_EMULATOR_ID,)),
+                    "Não disponível",
+                ),
+            )
+
+            for status, expected in cases:
+                with self.subTest(expected=expected):
+                    rendered = render_integration(
+                        game,
+                        status,
+                        make_integration(status, (Path("/game/saves"),)),
+                    )
+                    self.assertIn(expected, rendered)
+
+    def test_multiple_matches_and_derived_roots_use_python_owned_indexes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            game = make_game(Path(temp_directory) / "game")
+            status = make_status()
+            root = Path("/prefixes/Game/pfx/drive_c/GSE Saves")
+            resolution = make_integration(
+                status,
+                (root,),
+                covered_indexes=(0,),
+                sentinel_root_paths=(root, root / "second"),
+            )
+            first_coverage = resolution.coverage.location_coverages[0]
+            coverage = replace(
+                resolution.coverage,
+                location_coverages=(
+                    replace(
+                        first_coverage,
+                        matching_roots=resolution.coverage.gse_save_roots,
+                    ),
+                ),
+            )
+            resolution = replace(resolution, coverage=coverage)
+
+            rendered = render_integration(game, status, resolution)
+
+        self.assertIn("Correspondência no Sentinel #1", rendered)
+        self.assertIn("Correspondência no Sentinel #2", rendered)
+        self.assertIn("Raiz GSE do Sentinel #1", rendered)
+        self.assertIn("Raiz GSE do Sentinel #2", rendered)
+        self.assertIn(str(root / "second"), rendered)
+
+    def test_status_renders_rich_like_translations_and_values_literally(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            root = Path(temp_directory) / "[bold]literal-root[/bold]"
+            original = make_game(root)
+            game = replace(original, name="[bold]Literal Game[/bold]")
+            status = make_status()
+            save_root = Path("/saves/[yellow]literal[/yellow]")
+            sentinel_root = Path("/sentinel/[magenta]root[/magenta]")
+
+            rendered = render_integration(
+                game,
+                status,
+                make_integration(
+                    status,
+                    (save_root,),
+                    covered_indexes=(0,),
+                    sentinel_root_paths=(sentinel_root,),
+                ),
+                executable=Path("/usr/bin/[cyan]sentinel[/cyan]"),
+                translations=RichLikeTranslations(),
+            )
+
+        for expected in (
+            "[red]Jogo[/red]",
+            "[red]Integração GSE[/red]",
+            "[red]Somente leitura[/red]",
+            "[bold]Literal Game[/bold]",
+            "/usr/bin/[cyan]sentinel[/cyan]",
+            "/saves/[yellow]literal[/yellow]",
+            "/sentinel/[magenta]root[/magenta]",
+        ):
+            self.assertIn(expected, rendered)
+
+    def test_default_helper_call_preserves_legacy_repair_presentation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            status = make_status()
+            root = Path("/prefixes/Game/pfx/drive_c/GSE Saves")
+            resolution = make_integration(
+                status,
+                (root,),
+                covered_indexes=(0,),
+                sentinel_root_paths=(root,),
+            )
+            _, mocks = run_integration(
+                make_game(Path(temp_directory) / "game"),
+                status,
+                resolution,
+            )
+        plan = mocks["repair_rows"].call_args.args[1]
+        table = Table.grid(padding=(0, 2))
+        table.add_column()
+        table.add_column()
+        _add_sentinel_repair_rows(table, plan)
+        output = StringIO()
+        Console(file=output, width=200, color_system=None).print(table)
+        rendered = output.getvalue()
+
+        self.assertIn("Fully watched", rendered)
+        self.assertIn("Candidate prefixes", rendered)
+        self.assertIn("Location de reparo", rendered)
+        self.assertNotIn("Prefixos candidatos", rendered)
+
+    def test_detector_config_and_resolver_errors_propagate_without_pause(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            game = make_game(Path(temp_directory) / "game")
+            status = make_status()
+            installation = SentinelInstallation(
+                executable=Path("/usr/bin/sentinel"),
+                config_path=status.path,
+                data_directory=Path("/data/sentinel"),
+                state_directory=Path("/state/sentinel"),
+                log_path=Path("/state/sentinel/logs/sentinel.log"),
+            )
+            cases = (
+                ("detect_sentinel", OSError("detect failure")),
+                ("read_sentinel_config", ValueError("config failure")),
+                ("resolve_game_sentinel_repair", RuntimeError("resolver failure")),
+            )
+
+            for target, error in cases:
+                with (
+                    self.subTest(target=target),
+                    patch("goldberg_manager.cli.clear_screen"),
+                    patch("goldberg_manager.cli.render_header"),
+                    patch("goldberg_manager.cli.load_translations"),
+                    patch(
+                        "goldberg_manager.cli.detect_sentinel",
+                        return_value=installation,
+                        side_effect=error if target == "detect_sentinel" else None,
+                    ),
+                    patch(
+                        "goldberg_manager.cli.read_sentinel_config",
+                        return_value=status,
+                        side_effect=error if target == "read_sentinel_config" else None,
+                    ),
+                    patch(
+                        "goldberg_manager.cli.resolve_game_sentinel_repair",
+                        side_effect=(
+                            error if target == "resolve_game_sentinel_repair" else None
+                        ),
+                    ),
+                    patch("goldberg_manager.cli.pause") as pause,
+                    self.assertRaisesRegex(type(error), str(error)),
+                ):
+                    show_game_sentinel_integration_status(game)
+
+                pause.assert_not_called()
+
     def test_invalid_config_is_reported(self) -> None:
         with tempfile.TemporaryDirectory() as temp_directory:
             game = make_game(Path(temp_directory) / "game")
@@ -383,7 +731,7 @@ class SentinelGameIntegrationTests(unittest.TestCase):
 
             self.assertIn("GSE habilitado", rendered)
             self.assertIn(
-                "O Sentinel não possui o emulator GSE habilitado.",
+                "O Sentinel não possui o emulador GSE habilitado.",
                 rendered,
             )
 
@@ -400,7 +748,7 @@ class SentinelGameIntegrationTests(unittest.TestCase):
 
             self.assertIn("Watcher configurado", rendered)
             self.assertIn(
-                "O watcher do Sentinel não possui prefixes configurados.",
+                "O watcher do Sentinel não possui prefixos configurados.",
                 rendered,
             )
 
@@ -415,7 +763,7 @@ class SentinelGameIntegrationTests(unittest.TestCase):
                 make_integration(status, ()),
             )
 
-            self.assertIn("Unwatched", rendered)
+            self.assertIn("Save efetivo não coberto", rendered)
             self.assertIn("Não determinado", rendered)
             self.assertIn(
                 "O save efetivo usado pelo GSE não pôde ser resolvido.",
@@ -474,13 +822,13 @@ class SentinelGameIntegrationTests(unittest.TestCase):
             self.assertTrue(save_resolution.ambiguous)
             self.assertEqual(coverage.location_coverages, ())
             self.assertIn("Ambíguo", rendered)
-            self.assertIn("Effective root", rendered)
+            self.assertIn("Raiz efetiva", rendered)
             self.assertIn("Não determinado", rendered)
-            self.assertEqual(rendered.count("Effective root"), 1)
+            self.assertEqual(rendered.count("Raiz efetiva"), 1)
             for index, possible_root in enumerate(possible_roots, start=1):
-                self.assertIn(f"Possible root #{index}", rendered)
+                self.assertIn(f"Raiz possível #{index}", rendered)
                 self.assertIn(str(possible_root), rendered)
-            self.assertIn("Há múltiplos roots Wine possíveis", rendered)
+            self.assertIn("Há múltiplas raízes Wine possíveis", rendered)
             self.assertNotIn("save customizado fora do layout observado", rendered)
             repair_needed = rendered_row_value(rendered, "Reparo necessário")
             requires_gse_change = rendered_row_value(
@@ -528,7 +876,7 @@ class SentinelGameIntegrationTests(unittest.TestCase):
 
             self.assertTrue(save_resolution.ambiguous)
             self.assertIn("Múltiplos runtimes para este AppID", rendered)
-            self.assertIn("root efetivo permanece ambíguo", rendered)
+            self.assertIn("raiz efetiva permanece ambígua", rendered)
 
     def test_fully_watched_locations_are_reported(self) -> None:
         with tempfile.TemporaryDirectory() as temp_directory:
@@ -547,12 +895,12 @@ class SentinelGameIntegrationTests(unittest.TestCase):
                 ),
             )
 
-            self.assertIn("Fully watched", rendered)
+            self.assertIn("Cobertura completa", rendered)
             self.assertIn("Coberta", rendered)
             self.assertIn("Notificações GSE", rendered)
             self.assertIn("Desabilitadas", rendered)
             self.assertIn(
-                "Todas as locations efetivas do GSE estão cobertas.",
+                "Todas as localizações efetivas do GSE estão cobertas.",
                 rendered,
             )
             self.assertEqual(
@@ -560,7 +908,7 @@ class SentinelGameIntegrationTests(unittest.TestCase):
                 "✓ Não",
             )
             self.assertEqual(
-                rendered_row_value(rendered, "Fully watched"),
+                rendered_row_value(rendered, "Cobertura completa"),
                 "✓ Sim",
             )
 
@@ -582,10 +930,10 @@ class SentinelGameIntegrationTests(unittest.TestCase):
                 ),
             )
 
-            self.assertIn("Partially watched", rendered)
+            self.assertIn("Cobertura parcial", rendered)
             self.assertIn("A cobertura do Sentinel é parcial.", rendered)
-            self.assertIn("Effective root #1", rendered)
-            self.assertIn("Effective root #2", rendered)
+            self.assertIn("Raiz efetiva #1", rendered)
+            self.assertIn("Raiz efetiva #2", rendered)
             self.assertIn(str(watched), rendered)
             self.assertIn(str(custom), rendered)
             self.assertIn("Não coberta", rendered)
@@ -605,7 +953,7 @@ class SentinelGameIntegrationTests(unittest.TestCase):
                 ),
             )
 
-            self.assertIn("Unwatched", rendered)
+            self.assertIn("Save efetivo não coberto", rendered)
             self.assertIn(
                 "O save efetivamente usado pelo GSE não é observado.",
                 rendered,

@@ -455,7 +455,14 @@ def show_game_profile(game: Game) -> None:
     pause()
 
 
-def show_game_details(game) -> None:
+def show_game_details(
+    game,
+    *,
+    translations: Translations | None = None,
+) -> None:
+    if translations is None:
+        translations = load_translations()
+
     while True:
         clear_screen()
         render_header()
@@ -464,14 +471,23 @@ def show_game_details(game) -> None:
         table.add_column(style="bold cyan", no_wrap=True)
         table.add_column(style="white")
 
-        table.add_row("Nome", game.name)
-        table.add_row("Arquitetura", game.architecture)
-        table.add_row("Raiz do jogo", str(game.root_directory))
-        table.add_row("Executável", str(game.executable))
-        table.add_row("Steam API", str(game.steam_api))
+        table.add_row(Text(translations.gettext("Nome")), Text(str(game.name)))
         table.add_row(
-            "Steam API relativa",
-            str(game.steam_api_relative_path),
+            Text(translations.gettext("Arquitetura")),
+            Text(str(game.architecture)),
+        )
+        table.add_row(
+            Text(translations.gettext("Raiz do jogo")),
+            Text(str(game.root_directory)),
+        )
+        table.add_row(
+            Text(translations.gettext("Executável")),
+            Text(str(game.executable)),
+        )
+        table.add_row(Text("Steam API"), Text(str(game.steam_api)))
+        table.add_row(
+            Text(translations.gettext("Steam API relativa")),
+            Text(str(game.steam_api_relative_path)),
         )
         if not has_backup(game):
             backup_status = "Não"
@@ -482,7 +498,10 @@ def show_game_details(game) -> None:
         else:
             backup_status = "Sim • CORROMPIDO"
 
-        table.add_row("Backup", backup_status)
+        table.add_row(
+            Text(translations.gettext("Backup")),
+            Text(translations.gettext(backup_status)),
+        )
         if not has_backup(game):
             current_status = "Desconhecido"
         elif current_file_matches_backup(game):
@@ -490,58 +509,91 @@ def show_game_details(game) -> None:
         else:
             current_status = "Modificado"
 
-        table.add_row("Steam API atual", current_status)
         table.add_row(
-            "Origem da detecção",
-            str(game.source_directory),
+            Text(translations.gettext("Steam API atual")),
+            Text(translations.gettext(current_status)),
+        )
+        table.add_row(
+            Text(translations.gettext("Origem da detecção")),
+            Text(str(game.source_directory)),
         )
 
         console.print(
             Panel(
                 table,
-                title="Detalhes do jogo",
+                title=Text(translations.gettext("Detalhes do jogo")),
                 border_style="green",
                 box=box.ROUNDED,
             )
         )
 
         choice = questionary.select(
-            "O que deseja fazer?",
+            translations.gettext("O que deseja fazer?"),
             choices=[
-                "Ver perfil do jogo",
-                "Verificar achievements / progresso",
-                "Verificar GSE saves",
-                "Verificar Sentinel",
-                "Verificar integração Sentinel",
-                "Corrigir integração Sentinel",
-                "Fazer backup da Steam API",
-                "Restaurar Steam API original",
-                "Voltar",
+                questionary.Choice(
+                    title=translations.gettext("Ver perfil do jogo"),
+                    value="profile",
+                ),
+                questionary.Choice(
+                    title=translations.gettext("Verificar conquistas / progresso"),
+                    value="achievement_progress",
+                ),
+                questionary.Choice(
+                    title=translations.gettext("Verificar saves do GSE"),
+                    value="gse_saves",
+                ),
+                questionary.Choice(
+                    title=translations.gettext("Verificar Sentinel"),
+                    value="sentinel_status",
+                ),
+                questionary.Choice(
+                    title=translations.gettext("Verificar integração Sentinel"),
+                    value="sentinel_integration",
+                ),
+                questionary.Choice(
+                    title=translations.gettext("Corrigir integração Sentinel"),
+                    value="sentinel_repair",
+                ),
+                questionary.Choice(
+                    title=translations.gettext("Fazer backup da Steam API"),
+                    value="steam_api_backup",
+                ),
+                questionary.Choice(
+                    title=translations.gettext("Restaurar Steam API original"),
+                    value="steam_api_restore",
+                ),
+                questionary.Choice(
+                    title=translations.gettext("Voltar"),
+                    value="back",
+                ),
             ],
         ).ask()
 
-        if choice == "Ver perfil do jogo":
+        if choice is None or choice == "back":
+            return
+
+        if choice == "profile":
             show_game_profile(game)
 
-        elif choice == "Verificar achievements / progresso":
+        elif choice == "achievement_progress":
             show_game_achievement_status(game)
 
-        elif choice == "Verificar GSE saves":
+        elif choice == "gse_saves":
             show_game_gse_status(game)
 
-        elif choice == "Verificar Sentinel":
+        elif choice == "sentinel_status":
             show_game_sentinel_status(game)
 
-        elif choice == "Verificar integração Sentinel":
+        elif choice == "sentinel_integration":
             show_game_sentinel_integration_status(game)
 
-        elif choice == "Corrigir integração Sentinel":
+        elif choice == "sentinel_repair":
             repair_game_sentinel_integration(game)
 
-        elif choice == "Fazer backup da Steam API":
+        elif choice == "steam_api_backup":
             create_game_backup(game)
 
-        elif choice == "Restaurar Steam API original":
+        elif choice == "steam_api_restore":
             restore_game_api(game)
 
         else:

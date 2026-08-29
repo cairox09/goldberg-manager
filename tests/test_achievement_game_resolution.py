@@ -427,15 +427,15 @@ class AchievementGameResolutionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_directory:
             game = make_game(Path(temp_directory) / "game")
             choices = [
-                "Ver perfil do jogo",
-                "Verificar achievements / progresso",
-                "Verificar GSE saves",
-                "Verificar Sentinel",
-                "Verificar integração Sentinel",
-                "Corrigir integração Sentinel",
-                "Fazer backup da Steam API",
-                "Restaurar Steam API original",
-                "Voltar",
+                "profile",
+                "achievement_progress",
+                "gse_saves",
+                "sentinel_status",
+                "sentinel_integration",
+                "sentinel_repair",
+                "steam_api_backup",
+                "steam_api_restore",
+                "back",
             ]
 
             with (
@@ -462,7 +462,7 @@ class AchievementGameResolutionTests(unittest.TestCase):
                 show_game_details(game)
 
             self.assertEqual(
-                select.call_args_list[0].kwargs["choices"],
+                [choice.value for choice in select.call_args_list[0].kwargs["choices"]],
                 choices,
             )
             profile.assert_called_once_with(game)

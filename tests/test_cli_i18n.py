@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from contextlib import ExitStack
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -13,6 +14,7 @@ from goldberg_manager.cli import (
     get_menu_game,
     render_menu,
     select_game,
+    show_game_details,
 )
 from goldberg_manager.core.game import Game
 from goldberg_manager.presentation.i18n import load_translations
@@ -52,6 +54,73 @@ def make_game(
         architecture=architecture,
         source_directory=Path("/games"),
     )
+
+
+GAME_DETAILS_VALUES = [
+    "profile",
+    "achievement_progress",
+    "gse_saves",
+    "sentinel_status",
+    "sentinel_integration",
+    "sentinel_repair",
+    "steam_api_backup",
+    "steam_api_restore",
+    "back",
+]
+
+GAME_DETAILS_ACTIONS = (
+    "show_game_profile",
+    "show_game_achievement_status",
+    "show_game_gse_status",
+    "show_game_sentinel_status",
+    "show_game_sentinel_integration_status",
+    "repair_game_sentinel_integration",
+    "create_game_backup",
+    "restore_game_api",
+)
+
+
+def render_game_details(
+    game: Game,
+    *,
+    translations=None,
+    backup_exists: bool = False,
+    metadata_exists: bool = False,
+    backup_verified: bool = False,
+    current_matches: bool = False,
+):
+    output = StringIO()
+    test_console = Console(file=output, width=300, color_system=None)
+
+    with (
+        patch("goldberg_manager.cli.console", test_console),
+        patch("goldberg_manager.cli.clear_screen"),
+        patch("goldberg_manager.cli.render_header"),
+        patch("goldberg_manager.cli.questionary.select") as select,
+        patch(
+            "goldberg_manager.cli.has_backup",
+            return_value=backup_exists,
+        ) as has_backup,
+        patch(
+            "goldberg_manager.cli.has_backup_metadata",
+            return_value=metadata_exists,
+        ),
+        patch(
+            "goldberg_manager.cli.verify_backup",
+            return_value=backup_verified,
+        ),
+        patch(
+            "goldberg_manager.cli.current_file_matches_backup",
+            return_value=current_matches,
+        ),
+    ):
+        select.return_value.ask.return_value = "back"
+        if translations is None:
+            show_game_details(game)
+        else:
+            show_game_details(game, translations=translations)
+
+    return output.getvalue(), select, has_backup
 
 
 class MainMenuI18nTests(unittest.TestCase):
@@ -114,6 +183,220 @@ class MainMenuI18nTests(unittest.TestCase):
 
     def test_rich_like_translated_text_renders_literally(self) -> None:
         rendered = render_main_menu(translations=FakeTranslations("[red]literal[/red]"))
+
+        self.assertIn("[red]literal[/red]", rendered)
+
+
+class GameDetailsI18nTests(unittest.TestCase):
+    def test_portuguese_defaults_and_stable_choice_values(self) -> None:
+        rendered, select, has_backup = render_game_details(make_game("Jogo"))
+
+        for expected in (
+            "Nome",
+            "Arquitetura",
+            "Raiz do jogo",
+            "Executável",
+            "Steam API relativa",
+            "Backup",
+            "Steam API atual",
+            "Origem da detecção",
+            "Detalhes do jogo",
+            "Não",
+            "Desconhecido",
+        ):
+            self.assertIn(expected, rendered)
+
+        choices = select.call_args.kwargs["choices"]
+        self.assertEqual(select.call_args.args[0], "O que deseja fazer?")
+        self.assertEqual(
+            [choice.title for choice in choices],
+            [
+                "Ver perfil do jogo",
+                "Verificar conquistas / progresso",
+                "Verificar saves do GSE",
+                "Verificar Sentinel",
+                "Verificar integração Sentinel",
+                "Corrigir integração Sentinel",
+                "Fazer backup da Steam API",
+                "Restaurar Steam API original",
+                "Voltar",
+            ],
+        )
+        self.assertEqual([choice.value for choice in choices], GAME_DETAILS_VALUES)
+        self.assertIsNotNone(choices[-1].value)
+        self.assertNotIn("default", select.call_args.kwargs)
+        self.assertNotIn("use_shortcuts", select.call_args.kwargs)
+        self.assertNotIn("use_arrow_keys", select.call_args.kwargs)
+        self.assertEqual(has_backup.call_count, 2)
+
+    def test_explicit_english_translates_panel_menu_and_statuses(self) -> None:
+        translations = load_translations("en")
+        game = make_game("Literal Game")
+        rendered, select, has_backup = render_game_details(
+            game,
+            translations=translations,
+        )
+
+        for expected in (
+            "Name",
+            "Architecture",
+            "Game root",
+            "Executable",
+            "Steam API relative path",
+            "Backup",
+            "Current Steam API",
+            "Detection source",
+            "Game details",
+            "No",
+            "Unknown",
+            "Steam API",
+            "64-bit",
+        ):
+            self.assertIn(expected, rendered)
+
+        choices = select.call_args.kwargs["choices"]
+        self.assertEqual(select.call_args.args[0], "What would you like to do?")
+        self.assertEqual(
+            [choice.title for choice in choices],
+            [
+                "View game profile",
+                "Check achievements / progress",
+                "Check GSE saves",
+                "Check Sentinel",
+                "Check Sentinel integration",
+                "Repair Sentinel integration",
+                "Back up the Steam API",
+                "Restore the original Steam API",
+                "Back",
+            ],
+        )
+        self.assertEqual([choice.value for choice in choices], GAME_DETAILS_VALUES)
+        self.assertEqual(has_backup.call_count, 2)
+
+        status_cases = (
+            (
+                {
+                    "backup_exists": True,
+                    "metadata_exists": False,
+                    "current_matches": True,
+                },
+                ("Yes • no metadata", "Original"),
+            ),
+            (
+                {
+                    "backup_exists": True,
+                    "metadata_exists": True,
+                    "backup_verified": True,
+                    "current_matches": False,
+                },
+                ("Yes • intact", "Modified"),
+            ),
+            (
+                {
+                    "backup_exists": True,
+                    "metadata_exists": True,
+                    "backup_verified": False,
+                    "current_matches": False,
+                },
+                ("Yes • CORRUPTED", "Modified"),
+            ),
+        )
+        for options, expected_statuses in status_cases:
+            with self.subTest(expected_statuses=expected_statuses):
+                status_rendered, _, status_has_backup = render_game_details(
+                    game,
+                    translations=translations,
+                    **options,
+                )
+                for expected in expected_statuses:
+                    self.assertIn(expected, status_rendered)
+                self.assertEqual(status_has_backup.call_count, 2)
+
+    def test_duplicate_translated_titles_cannot_affect_routing(self) -> None:
+        game = make_game("Jogo")
+        translations = FakeTranslations("duplicate title")
+
+        with (
+            patch("goldberg_manager.cli.questionary.select") as select,
+            patch("goldberg_manager.cli.repair_game_sentinel_integration") as repair,
+            patch("goldberg_manager.cli.has_backup", return_value=False),
+            patch("goldberg_manager.cli.clear_screen"),
+            patch("goldberg_manager.cli.render_header"),
+            patch("goldberg_manager.cli.console.print"),
+        ):
+            select.return_value.ask.side_effect = ["sentinel_repair", "back"]
+
+            show_game_details(game, translations=translations)
+
+        first_choices = select.call_args_list[0].kwargs["choices"]
+        self.assertTrue(
+            all(choice.title == "duplicate title" for choice in first_choices)
+        )
+        self.assertEqual(
+            [choice.value for choice in first_choices],
+            GAME_DETAILS_VALUES,
+        )
+        repair.assert_called_once_with(game)
+
+    def test_none_back_and_unknown_values_return_without_action(self) -> None:
+        game = make_game("Jogo")
+
+        for answer in (None, "back", "unknown"):
+            with self.subTest(answer=answer), ExitStack() as stack:
+                select = stack.enter_context(
+                    patch("goldberg_manager.cli.questionary.select")
+                )
+                actions = [
+                    stack.enter_context(patch(f"goldberg_manager.cli.{action}"))
+                    for action in GAME_DETAILS_ACTIONS
+                ]
+                stack.enter_context(
+                    patch("goldberg_manager.cli.has_backup", return_value=False)
+                )
+                stack.enter_context(patch("goldberg_manager.cli.clear_screen"))
+                stack.enter_context(patch("goldberg_manager.cli.render_header"))
+                stack.enter_context(patch("goldberg_manager.cli.console.print"))
+                select.return_value.ask.return_value = answer
+
+                show_game_details(game)
+
+                for action in actions:
+                    action.assert_not_called()
+
+    def test_dynamic_rich_markup_and_technical_values_render_literally(self) -> None:
+        root = Path("/games/[red]literal[/red]")
+        game = Game(
+            name="[bold]Literal Game[/bold]",
+            root_directory=root,
+            executable=root / "[cyan]game.exe[/cyan]",
+            steam_api=root / "[green]steam_api64.dll[/green]",
+            steam_api_relative_path=Path("[yellow]steam_api64.dll[/yellow]"),
+            architecture="[magenta]64-bit[/magenta]",
+            source_directory=Path("/source/[blue]library[/blue]"),
+        )
+
+        rendered, _, _ = render_game_details(
+            game,
+            translations=load_translations("en"),
+        )
+
+        for expected in (
+            "[bold]Literal Game[/bold]",
+            "/games/[red]literal[/red]",
+            "[cyan]game.exe[/cyan]",
+            "[green]steam_api64.dll[/green]",
+            "[yellow]steam_api64.dll[/yellow]",
+            "[magenta]64-bit[/magenta]",
+            "/source/[blue]library[/blue]",
+            "Steam API",
+        ):
+            self.assertIn(expected, rendered)
+
+    def test_translated_rich_markup_renders_literally(self) -> None:
+        rendered, _, _ = render_game_details(
+            make_game("Jogo"),
+            translations=FakeTranslations("[red]literal[/red]"),
+        )
 
         self.assertIn("[red]literal[/red]", rendered)
 

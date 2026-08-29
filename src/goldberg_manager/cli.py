@@ -582,7 +582,10 @@ def show_game_details(
             show_game_gse_status(game)
 
         elif choice == "sentinel_status":
-            show_game_sentinel_status(game)
+            show_game_sentinel_status(
+                game,
+                translations=translations,
+            )
 
         elif choice == "sentinel_integration":
             show_game_sentinel_integration_status(game)
@@ -1043,7 +1046,37 @@ def show_sentinel_status() -> None:
 
 def show_game_sentinel_status(
     game: Game,
+    *,
+    translations: Translations | None = None,
 ) -> None:
+    if translations is None:
+        translations = load_translations()
+
+    def message(text: str, **values: object) -> str:
+        translated = translations.gettext(text)
+        return translated.format(**values) if values else translated
+
+    def status_text(
+        symbol: str,
+        text: str,
+        style: str,
+        **values: object,
+    ) -> Text:
+        status = Text()
+        status.append(f"{symbol} {message(text, **values)}", style=style)
+        return status
+
+    def indexed_label(
+        singular: str,
+        plural: str,
+        *,
+        index: int,
+        multiple: bool,
+    ) -> Text:
+        return Text(
+            message(plural, index=index) if multiple else message(singular),
+        )
+
     clear_screen()
     render_header()
 
@@ -1072,30 +1105,33 @@ def show_game_sentinel_status(
     )
 
     table.add_row(
-        "Jogo",
-        game.name,
+        Text(message("Jogo")),
+        Text(str(game.name)),
+    )
+
+    if installation.installed:
+        sentinel_status = status_text("✓", "Detectado", "green")
+        sentinel_status.append(" • ")
+        sentinel_status.append(str(installation.executable))
+    else:
+        sentinel_status = status_text("⚠", "Não detectado", "yellow")
+
+    table.add_row(
+        Text("Sentinel"),
+        sentinel_status,
     )
 
     table.add_row(
-        "Sentinel",
+        Text(message("Configuração")),
         (
-            f"[green]✓ Detectado[/green] • {installation.executable}"
-            if installation.installed
-            else "[yellow]⚠ Não detectado[/yellow]"
-        ),
-    )
-
-    table.add_row(
-        "Configuração",
-        (
-            "[green]✓ Válida[/green]"
+            status_text("✓", "Válida", "green")
             if status.configured
-            else "[yellow]⚠ Não configurada[/yellow]"
+            else status_text("⚠", "Não configurada", "yellow")
         ),
     )
 
     if resolution.app_id is None:
-        app_id_status = "[yellow]⚠ Não resolvido[/yellow]"
+        app_id_status = status_text("⚠", "Não resolvido", "yellow")
     else:
         details: list[str] = []
 
@@ -1107,12 +1143,14 @@ def show_game_sentinel_status(
         if resolution.app_id_confidence is not None:
             details.append(f"{resolution.app_id_confidence}%")
 
-        metadata = " • " + " • ".join(details) if details else ""
-
-        app_id_status = f"[green]✓ {resolution.app_id}[/green]{metadata}"
+        app_id_status = Text()
+        app_id_status.append(f"✓ {resolution.app_id}", style="green")
+        for detail in details:
+            app_id_status.append(" • ")
+            app_id_status.append(detail)
 
     table.add_row(
-        "AppID",
+        Text("AppID"),
         app_id_status,
     )
 
@@ -1120,12 +1158,20 @@ def show_game_sentinel_status(
         runtime_count = len(
             resolution.runtime_saves,
         )
-
-        runtime_label = "correspondência" if runtime_count == 1 else "correspondências"
+        runtime_message = (
+            "{count} correspondência"
+            if runtime_count == 1
+            else "{count} correspondências"
+        )
 
         table.add_row(
-            "Runtime",
-            (f"[green]✓ {runtime_count} {runtime_label}[/green]"),
+            Text(message("Runtime")),
+            status_text(
+                "✓",
+                runtime_message,
+                "green",
+                count=runtime_count,
+            ),
         )
 
         multiple_matches = runtime_count > 1
@@ -1134,68 +1180,102 @@ def show_game_sentinel_status(
             resolution.runtime_saves,
             start=1,
         ):
-            suffix = f" #{index}" if multiple_matches else ""
-
             table.add_row(
-                f"Emulador{suffix}",
-                runtime_save.emulator_id,
-            )
-
-            table.add_row(
-                f"Prefixo{suffix}",
-                str(runtime_save.prefix_path),
-            )
-
-            table.add_row(
-                f"drive_c{suffix}",
-                str(runtime_save.drive_c),
-            )
-
-            table.add_row(
-                f"Save root{suffix}",
-                str(runtime_save.saves_directory),
-            )
-
-            table.add_row(
-                f"AppID runtime{suffix}",
-                str(runtime_save.app_id),
-            )
-
-            table.add_row(
-                f"achievements.json{suffix}",
-                (
-                    f"[green]✓ Encontrado[/green] • {runtime_save.achievements_path}"
-                    if runtime_save.achievements_exists
-                    else (
-                        "[yellow]⚠ Ainda não criado[/yellow] • "
-                        f"{runtime_save.achievements_path}"
-                    )
+                indexed_label(
+                    "Emulador",
+                    "Emulador #{index}",
+                    index=index,
+                    multiple=multiple_matches,
                 ),
+                Text(str(runtime_save.emulator_id)),
+            )
+
+            table.add_row(
+                indexed_label(
+                    "Prefixo",
+                    "Prefixo #{index}",
+                    index=index,
+                    multiple=multiple_matches,
+                ),
+                Text(str(runtime_save.prefix_path)),
+            )
+
+            table.add_row(
+                Text(f"drive_c #{index}" if multiple_matches else "drive_c"),
+                Text(str(runtime_save.drive_c)),
+            )
+
+            table.add_row(
+                indexed_label(
+                    "Raiz do save",
+                    "Raiz do save #{index}",
+                    index=index,
+                    multiple=multiple_matches,
+                ),
+                Text(str(runtime_save.saves_directory)),
+            )
+
+            table.add_row(
+                indexed_label(
+                    "AppID do runtime",
+                    "AppID do runtime #{index}",
+                    index=index,
+                    multiple=multiple_matches,
+                ),
+                Text(str(runtime_save.app_id)),
+            )
+
+            achievements_status = status_text(
+                "✓" if runtime_save.achievements_exists else "⚠",
+                "Encontrado"
+                if runtime_save.achievements_exists
+                else "Ainda não criado",
+                "green" if runtime_save.achievements_exists else "yellow",
+            )
+            achievements_status.append(" • ")
+            achievements_status.append(str(runtime_save.achievements_path))
+
+            table.add_row(
+                Text(
+                    f"achievements.json #{index}"
+                    if multiple_matches
+                    else "achievements.json"
+                ),
+                achievements_status,
             )
 
     else:
         table.add_row(
-            "Runtime",
-            "[yellow]⚠ Nenhum save correspondente encontrado[/yellow]",
+            Text(message("Runtime")),
+            status_text(
+                "⚠",
+                "Nenhum save correspondente encontrado",
+                "yellow",
+            ),
         )
 
     console.print(
         Panel(
             table,
-            title="Sentinel • Runtime do jogo",
+            title=Text.assemble(
+                "Sentinel • ",
+                Text(message("Runtime do jogo")),
+            ),
             border_style=("green" if resolution.runtime_found else "yellow"),
             box=box.ROUNDED,
         )
     )
 
     console.print(
-        "[dim]"
-        "Somente leitura • "
-        "nenhum arquivo do Sentinel ou do GSE foi alterado."
-        "[/dim]"
+        Text(
+            message(
+                "Somente leitura • nenhum arquivo do Sentinel ou do GSE foi alterado."
+            ),
+            style="dim",
+        )
     )
 
-    pause()
+    pause(message("Pressione Enter para continuar..."))
 
 
 def _achievement_report_table(

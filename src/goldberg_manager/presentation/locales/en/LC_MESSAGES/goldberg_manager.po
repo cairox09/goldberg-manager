@@ -369,3 +369,72 @@ msgstr "Restore the original Steam API"
 
 msgid "O que deseja fazer?"
 msgstr "What would you like to do?"
+
+msgid "Jogo"
+msgstr "Game"
+
+msgid "Detectado"
+msgstr "Detected"
+
+msgid "Não detectado"
+msgstr "Not detected"
+
+msgid "Não configurada"
+msgstr "Not configured"
+
+msgid "Não resolvido"
+msgstr "Unresolved"
+
+#, python-brace-format
+msgid "{count} correspondência"
+msgstr "{count} match"
+
+#, python-brace-format
+msgid "{count} correspondências"
+msgstr "{count} matches"
+
+msgid "Emulador"
+msgstr "Emulator"
+
+#, python-brace-format
+msgid "Emulador #{index}"
+msgstr "Emulator #{index}"
+
+msgid "Prefixo"
+msgstr "Prefix"
+
+#, python-brace-format
+msgid "Prefixo #{index}"
+msgstr "Prefix #{index}"
+
+msgid "Raiz do save"
+msgstr "Save root"
+
+#, python-brace-format
+msgid "Raiz do save #{index}"
+msgstr "Save root #{index}"
+
+msgid "AppID do runtime"
+msgstr "Runtime AppID"
+
+#, python-brace-format
+msgid "AppID do runtime #{index}"
+msgstr "Runtime AppID #{index}"
+
+msgid "Encontrado"
+msgstr "Found"
+
+msgid "Ainda não criado"
+msgstr "Not created yet"
+
+msgid "Nenhum save correspondente encontrado"
+msgstr "No matching save found"
+
+msgid "Runtime do jogo"
+msgstr "Game runtime"
+
+msgid "Somente leitura • nenhum arquivo do Sentinel ou do GSE foi alterado."
+msgstr "Read-only • no Sentinel or GSE file was changed."
+
+msgid "Pressione Enter para continuar..."
+msgstr "Press Enter to continue..."

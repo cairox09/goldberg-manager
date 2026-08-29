@@ -300,3 +300,72 @@ msgstr "No source was selected."
 
 msgid "Nenhuma evidência estrutural de prefixo via GSE ou Heroic disponível."
 msgstr "No structural prefix evidence from GSE or Heroic is available."
+
+msgid "Nome"
+msgstr "Name"
+
+msgid "Raiz do jogo"
+msgstr "Game root"
+
+msgid "Steam API relativa"
+msgstr "Steam API relative path"
+
+msgid "Backup"
+msgstr "Backup"
+
+msgid "Steam API atual"
+msgstr "Current Steam API"
+
+msgid "Origem da detecção"
+msgstr "Detection source"
+
+msgid "Detalhes do jogo"
+msgstr "Game details"
+
+msgid "Não"
+msgstr "No"
+
+msgid "Sim • sem metadados"
+msgstr "Yes • no metadata"
+
+msgid "Sim • íntegro"
+msgstr "Yes • intact"
+
+msgid "Sim • CORROMPIDO"
+msgstr "Yes • CORRUPTED"
+
+msgid "Desconhecido"
+msgstr "Unknown"
+
+msgid "Original"
+msgstr "Original"
+
+msgid "Modificado"
+msgstr "Modified"
+
+msgid "Ver perfil do jogo"
+msgstr "View game profile"
+
+msgid "Verificar conquistas / progresso"
+msgstr "Check achievements / progress"
+
+msgid "Verificar saves do GSE"
+msgstr "Check GSE saves"
+
+msgid "Verificar Sentinel"
+msgstr "Check Sentinel"
+
+msgid "Verificar integração Sentinel"
+msgstr "Check Sentinel integration"
+
+msgid "Corrigir integração Sentinel"
+msgstr "Repair Sentinel integration"
+
+msgid "Fazer backup da Steam API"
+msgstr "Back up the Steam API"
+
+msgid "Restaurar Steam API original"
+msgstr "Restore the original Steam API"
+
+msgid "O que deseja fazer?"
+msgstr "What would you like to do?"

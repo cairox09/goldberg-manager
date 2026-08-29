@@ -417,10 +417,15 @@ def restore_game_api(game) -> None:
     pause()
 
 
-def render_game_profile(profile: GameProfile) -> None:
+def render_game_profile(
+    profile: GameProfile,
+    *,
+    translations: Translations | None = None,
+) -> None:
     render_game_profile_view(
         profile,
         console=console,
+        translations=translations,
     )
 
 

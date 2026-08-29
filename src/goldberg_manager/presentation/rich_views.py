@@ -7,6 +7,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from ..game_profile import GameProfile
+from .i18n import Translations, load_translations
 
 
 def _game_profile_table() -> Table:
@@ -18,6 +19,17 @@ def _game_profile_table() -> Table:
 
 def _profile_display_value(value: object) -> str:
     return escape(str(value))
+
+
+def _profile_message(
+    translations: Translations,
+    message: str,
+    **values: object,
+) -> str:
+    translated = translations.gettext(message)
+    if values:
+        translated = translated.format(**values)
+    return _profile_display_value(translated)
 
 
 def _print_game_profile_section(
@@ -41,13 +53,17 @@ def render_game_profile(
     profile: GameProfile,
     *,
     console: Console,
+    translations: Translations | None = None,
 ) -> None:
-    unavailable = "[dim]— Não disponível[/dim]"
+    if translations is None:
+        translations = load_translations()
+
+    unavailable = f"[dim]— {_profile_message(translations, 'Não disponível')}[/dim]"
 
     console.print(
         Panel.fit(
             f"[bold]{_profile_display_value(profile.game.name)}[/bold]",
-            title="Perfil do jogo",
+            title=_profile_message(translations, "Perfil do jogo"),
             border_style="cyan",
             box=box.ROUNDED,
         )
@@ -55,7 +71,7 @@ def render_game_profile(
 
     identity = _game_profile_table()
     if profile.app_id is None:
-        app_id = "[dim]— Não identificado[/dim]"
+        app_id = f"[dim]— {_profile_message(translations, 'Não identificado')}[/dim]"
     else:
         app_id_details = [
             detail
@@ -66,7 +82,7 @@ def render_game_profile(
                     else None
                 ),
                 (
-                    f"{profile.app_id_confidence}%"
+                    f"{_profile_display_value(profile.app_id_confidence)}%"
                     if profile.app_id_confidence is not None
                     else None
                 ),
@@ -74,12 +90,22 @@ def render_game_profile(
             if detail is not None
         ]
         metadata = f" • {' • '.join(app_id_details)}" if app_id_details else ""
-        app_id = f"[green]✓ {profile.app_id}[/green]{metadata}"
+        app_id = f"[green]✓ {_profile_display_value(profile.app_id)}[/green]{metadata}"
     identity.add_row("AppID", app_id)
-    identity.add_row("Arquitetura", _profile_display_value(profile.architecture))
-    identity.add_row("Executável", _profile_display_value(profile.game.executable))
+    identity.add_row(
+        _profile_message(translations, "Arquitetura"),
+        _profile_display_value(profile.architecture),
+    )
+    identity.add_row(
+        _profile_message(translations, "Executável"),
+        _profile_display_value(profile.game.executable),
+    )
     identity.add_row("Steam API", _profile_display_value(profile.game.steam_api))
-    _print_game_profile_section(console, "Identidade", identity)
+    _print_game_profile_section(
+        console,
+        _profile_message(translations, "Identidade"),
+        identity,
+    )
 
     settings = _game_profile_table()
     settings_snapshot = profile.settings
@@ -92,21 +118,30 @@ def render_game_profile(
         settings_snapshot.saves_folder_name,
     )
     if not any(value is not None for value in setting_values):
-        settings.add_row("Status", "[dim]— Nenhuma configuração identificada[/dim]")
+        settings.add_row(
+            _profile_message(translations, "Status"),
+            f"[dim]— {_profile_message(translations, 'Nenhuma configuração identificada')}[/dim]",
+        )
     else:
         if settings_snapshot.account_name is not None:
             settings.add_row(
-                "Conta", _profile_display_value(settings_snapshot.account_name)
+                _profile_message(translations, "Conta"),
+                _profile_display_value(settings_snapshot.account_name),
             )
         if settings_snapshot.account_steamid is not None:
-            settings.add_row("SteamID", str(settings_snapshot.account_steamid))
+            settings.add_row(
+                "SteamID",
+                _profile_display_value(settings_snapshot.account_steamid),
+            )
         if settings_snapshot.language is not None:
             settings.add_row(
-                "Idioma", _profile_display_value(settings_snapshot.language)
+                _profile_message(translations, "Idioma"),
+                _profile_display_value(settings_snapshot.language),
             )
         if settings_snapshot.ip_country is not None:
             settings.add_row(
-                "País", _profile_display_value(settings_snapshot.ip_country)
+                _profile_message(translations, "País"),
+                _profile_display_value(settings_snapshot.ip_country),
             )
         if settings_snapshot.local_save_path is not None:
             settings.add_row(
@@ -118,40 +153,69 @@ def render_game_profile(
                 "saves_folder_name",
                 _profile_display_value(settings_snapshot.saves_folder_name),
             )
-    _print_game_profile_section(console, "Settings", settings)
+    _print_game_profile_section(
+        console,
+        _profile_message(translations, "Configurações"),
+        settings,
+    )
 
     saves = _game_profile_table()
     save_resolution = profile.gse.save_resolution
     if save_resolution is None:
-        saves.add_row("Resolução", "[dim]— GSE save não identificado[/dim]")
+        saves.add_row(
+            _profile_message(translations, "Resolução"),
+            f"[dim]— {_profile_message(translations, 'GSE save não identificado')}[/dim]",
+        )
     else:
-        saves.add_row("Origem", _profile_display_value(save_resolution.source))
+        saves.add_row(
+            _profile_message(translations, "Origem"),
+            _profile_display_value(save_resolution.source),
+        )
         if save_resolution.raw_value is not None:
             saves.add_row(
-                "Valor configurado",
+                _profile_message(translations, "Valor configurado"),
                 _profile_display_value(save_resolution.raw_value),
             )
 
         effective_locations = save_resolution.effective_locations
         if save_resolution.ambiguous:
-            saves.add_row("Resolução", "[yellow]⚠ Ambígua[/yellow]")
-            saves.add_row("Save efetivo", "[dim]— Não determinado[/dim]")
+            saves.add_row(
+                _profile_message(translations, "Resolução"),
+                f"[yellow]⚠ {_profile_message(translations, 'Ambígua')}[/yellow]",
+            )
+            saves.add_row(
+                _profile_message(translations, "Save efetivo"),
+                f"[dim]— {_profile_message(translations, 'Não determinado')}[/dim]",
+            )
         elif effective_locations:
-            saves.add_row("Resolução", "[green]✓ Determinada[/green]")
+            saves.add_row(
+                _profile_message(translations, "Resolução"),
+                f"[green]✓ {_profile_message(translations, 'Determinada')}[/green]",
+            )
             for location in effective_locations:
-                saves.add_row("Save efetivo", _profile_display_value(location.root))
+                saves.add_row(
+                    _profile_message(translations, "Save efetivo"),
+                    _profile_display_value(location.root),
+                )
         else:
-            saves.add_row("Resolução", "[dim]— Caminho não resolvido[/dim]")
+            saves.add_row(
+                _profile_message(translations, "Resolução"),
+                f"[dim]— {_profile_message(translations, 'Caminho não resolvido')}[/dim]",
+            )
 
         if save_resolution.ambiguous:
             for index, location in enumerate(save_resolution.locations, start=1):
                 saves.add_row(
-                    f"Save possível #{index}",
+                    _profile_message(
+                        translations,
+                        "Save possível #{index}",
+                        index=index,
+                    ),
                     _profile_display_value(location.root),
                 )
     _print_game_profile_section(
         console,
-        "Saves / GSE",
+        _profile_message(translations, "Saves / GSE"),
         saves,
         border_style=(
             "yellow"
@@ -174,20 +238,20 @@ def render_game_profile(
     )
     if metadata_error is not None:
         metadata_status = (
-            "[red]✗ Inválida[/red] • "
+            f"[red]✗ {_profile_message(translations, 'Inválida')}[/red] • "
             f"{_profile_display_value(achievement_resolution.metadata_path)}"
         )
     elif achievement_resolution.metadata_exists:
         metadata_status = (
-            "[green]✓ Encontrada[/green] • "
+            f"[green]✓ {_profile_message(translations, 'Encontrada')}[/green] • "
             f"{_profile_display_value(achievement_resolution.metadata_path)}"
         )
     else:
         metadata_status = (
-            "[yellow]⚠ Não encontrada[/yellow] • "
+            f"[yellow]⚠ {_profile_message(translations, 'Não encontrada')}[/yellow] • "
             f"{_profile_display_value(achievement_resolution.metadata_path)}"
         )
-    achievements.add_row("Metadata", metadata_status)
+    achievements.add_row(_profile_message(translations, "Metadados"), metadata_status)
     runtime_reports = tuple(
         report
         for report in achievement_resolution.reports
@@ -204,31 +268,78 @@ def render_game_profile(
     if runtime_reports:
         multiple_reports = len(runtime_reports) > 1
         for index, report in enumerate(runtime_reports, start=1):
-            suffix = f" #{index}" if multiple_reports else ""
-            achievements.add_row(
-                f"Runtime{suffix}", _profile_display_value(report.runtime_path)
+            runtime_label = (
+                _profile_message(translations, "Runtime #{index}", index=index)
+                if multiple_reports
+                else _profile_message(translations, "Runtime")
             )
-            achievements.add_row(f"Total{suffix}", str(report.total))
-            achievements.add_row(f"Desbloqueadas{suffix}", str(report.unlocked))
-            achievements.add_row(f"Bloqueadas{suffix}", str(report.locked))
+            total_label = (
+                _profile_message(translations, "Total #{index}", index=index)
+                if multiple_reports
+                else _profile_message(translations, "Total")
+            )
+            unlocked_label = (
+                _profile_message(
+                    translations,
+                    "Desbloqueadas #{index}",
+                    index=index,
+                )
+                if multiple_reports
+                else _profile_message(translations, "Desbloqueadas")
+            )
+            locked_label = (
+                _profile_message(
+                    translations,
+                    "Bloqueadas #{index}",
+                    index=index,
+                )
+                if multiple_reports
+                else _profile_message(translations, "Bloqueadas")
+            )
+            completion_label = (
+                _profile_message(
+                    translations,
+                    "Conclusão #{index}",
+                    index=index,
+                )
+                if multiple_reports
+                else _profile_message(translations, "Conclusão")
+            )
             achievements.add_row(
-                f"Conclusão{suffix}",
+                runtime_label,
+                _profile_display_value(report.runtime_path),
+            )
+            achievements.add_row(total_label, _profile_display_value(report.total))
+            achievements.add_row(
+                unlocked_label,
+                _profile_display_value(report.unlocked),
+            )
+            achievements.add_row(locked_label, _profile_display_value(report.locked))
+            achievements.add_row(
+                completion_label,
                 f"{report.completion_percentage:.1f}%",
             )
     else:
         achievements.add_row(
-            "Total",
-            str(metadata_report.total) if metadata_report is not None else unavailable,
+            _profile_message(translations, "Total"),
+            (
+                _profile_display_value(metadata_report.total)
+                if metadata_report is not None
+                else unavailable
+            ),
         )
-        achievements.add_row("Progresso", "[dim]— Runtime indisponível[/dim]")
+        achievements.add_row(
+            _profile_message(translations, "Progresso"),
+            f"[dim]— {_profile_message(translations, 'Runtime indisponível')}[/dim]",
+        )
     if achievement_resolution.errors:
         achievements.add_row(
-            "Erros de leitura",
-            f"[red]✗ {len(achievement_resolution.errors)}[/red]",
+            _profile_message(translations, "Erros de leitura"),
+            f"[red]✗ {_profile_display_value(len(achievement_resolution.errors))}[/red]",
         )
     _print_game_profile_section(
         console,
-        "Achievements",
+        _profile_message(translations, "Conquistas"),
         achievements,
         border_style="green" if runtime_reports else "yellow",
     )
@@ -238,41 +349,53 @@ def render_game_profile(
     status = profile.sentinel.status
     coverage = profile.sentinel.coverage
     sentinel.add_row(
-        "Instalação",
+        _profile_message(translations, "Instalação"),
         (
-            "[green]✓ Detectada[/green] • "
+            f"[green]✓ {_profile_message(translations, 'Detectada')}[/green] • "
             f"{_profile_display_value(installation.executable)}"
             if installation.installed
-            else "[yellow]⚠ Não detectada[/yellow]"
+            else f"[yellow]⚠ {_profile_message(translations, 'Não detectada')}[/yellow]"
         ),
     )
     if not status.exists:
-        config_status = "[yellow]⚠ Ausente[/yellow]"
+        config_status = (
+            f"[yellow]⚠ {_profile_message(translations, 'Ausente')}[/yellow]"
+        )
     elif not status.valid_json or not status.schema_valid:
-        config_status = "[red]✗ Inválida[/red]"
+        config_status = f"[red]✗ {_profile_message(translations, 'Inválida')}[/red]"
     else:
-        config_status = "[green]✓ Válida[/green]"
-    sentinel.add_row("Configuração", config_status)
-    sentinel.add_row("Config path", _profile_display_value(status.path))
+        config_status = f"[green]✓ {_profile_message(translations, 'Válida')}[/green]"
+    sentinel.add_row(_profile_message(translations, "Configuração"), config_status)
+    sentinel.add_row(
+        _profile_message(translations, "Caminho da configuração"),
+        _profile_display_value(status.path),
+    )
     if status.error is not None:
         sentinel.add_row(
-            "Diagnóstico",
+            _profile_message(translations, "Diagnóstico"),
             f"[red]{_profile_display_value(status.error)}[/red]",
         )
 
     if coverage.fully_watched:
-        coverage_status = "[green]✓ Cobertura completa[/green]"
+        coverage_status = (
+            f"[green]✓ {_profile_message(translations, 'Cobertura completa')}[/green]"
+        )
     elif coverage.partially_watched:
-        coverage_status = "[yellow]⚠ Cobertura parcial[/yellow]"
+        coverage_status = (
+            f"[yellow]⚠ {_profile_message(translations, 'Cobertura parcial')}[/yellow]"
+        )
     elif coverage.unwatched:
-        coverage_status = "[yellow]⚠ Save efetivo não coberto[/yellow]"
+        coverage_status = f"[yellow]⚠ {_profile_message(translations, 'Save efetivo não coberto')}[/yellow]"
     elif coverage.effective_save_resolved:
-        coverage_status = "[yellow]⚠ Cobertura não confirmada[/yellow]"
+        coverage_status = f"[yellow]⚠ {_profile_message(translations, 'Cobertura não confirmada')}[/yellow]"
     else:
-        coverage_status = "[dim]— Sem save efetivo para avaliar[/dim]"
-    sentinel.add_row("Integração GSE", coverage_status)
+        coverage_status = f"[dim]— {_profile_message(translations, 'Sem save efetivo para avaliar')}[/dim]"
+    sentinel.add_row(_profile_message(translations, "Integração GSE"), coverage_status)
     if coverage.recognized_by_sentinel:
-        sentinel.add_row("Runtime Sentinel", "[green]✓ Reconhecido[/green]")
+        sentinel.add_row(
+            _profile_message(translations, "Runtime do Sentinel"),
+            f"[green]✓ {_profile_message(translations, 'Reconhecido')}[/green]",
+        )
     _print_game_profile_section(
         console,
         "Sentinel",
@@ -287,7 +410,10 @@ def render_game_profile(
     heroic = _game_profile_table()
     heroic_provenance = profile.heroic
     if heroic_provenance.resolved:
-        heroic.add_row("Status", "[green]✓ RESOLVED[/green]")
+        heroic.add_row(
+            _profile_message(translations, "Status"),
+            f"[green]✓ {_profile_message(translations, 'RESOLVIDO')}[/green]",
+        )
         heroic_match = heroic_provenance.effective
         assert heroic_match is not None
         heroic.add_row(
@@ -295,19 +421,19 @@ def render_game_profile(
             _profile_display_value(heroic_match.installed_game.id.runner),
         )
         heroic.add_row(
-            "App name",
+            _profile_message(translations, "Nome do aplicativo"),
             _profile_display_value(heroic_match.installed_game.id.app_name),
         )
         heroic.add_row(
-            "Evidência",
+            _profile_message(translations, "Evidência"),
             (
-                heroic_provenance.strongest_evidence.value
+                _profile_display_value(heroic_provenance.strongest_evidence.value)
                 if heroic_provenance.strongest_evidence is not None
                 else unavailable
             ),
         )
         heroic.add_row(
-            "Configured prefix",
+            _profile_message(translations, "Prefixo configurado"),
             (
                 _profile_display_value(heroic_match.prefix.configured_prefix)
                 if heroic_match.prefix.configured_prefix is not None
@@ -315,110 +441,172 @@ def render_game_profile(
             ),
         )
         heroic.add_row(
-            "Structural Wine prefix",
+            _profile_message(translations, "Prefixo Wine estrutural"),
             (
                 _profile_display_value(heroic_match.prefix.structural_wine_prefix)
                 if heroic_match.prefix.structural_wine_prefix is not None
                 else unavailable
             ),
         )
-        heroic.add_row("Prefix layout", heroic_match.prefix.layout.name)
+        heroic.add_row(
+            _profile_message(translations, "Layout do prefixo"),
+            _profile_display_value(heroic_match.prefix.layout.name),
+        )
         heroic_border = (
             "green"
             if heroic_match.prefix.structural_wine_prefix is not None
             else "yellow"
         )
     elif heroic_provenance.ambiguous:
-        heroic.add_row("Status", "[yellow]⚠ AMBIGUOUS[/yellow]")
-        heroic.add_row("Ownership", "[yellow]Mais de um match Heroic[/yellow]")
-        heroic.add_row("Candidates", str(len(heroic_provenance.candidates)))
+        heroic.add_row(
+            _profile_message(translations, "Status"),
+            f"[yellow]⚠ {_profile_message(translations, 'AMBÍGUO')}[/yellow]",
+        )
+        heroic.add_row(
+            _profile_message(translations, "Propriedade"),
+            f"[yellow]{_profile_message(translations, 'Mais de uma correspondência no Heroic')}[/yellow]",
+        )
+        heroic.add_row(
+            _profile_message(translations, "Candidatos"),
+            _profile_display_value(len(heroic_provenance.candidates)),
+        )
         heroic_border = "yellow"
     else:
-        heroic.add_row("Status", "[dim]UNKNOWN[/dim]")
-        heroic.add_row("Ownership", "[dim]Heroic ownership não identificado.[/dim]")
+        heroic.add_row(
+            _profile_message(translations, "Status"),
+            f"[dim]{_profile_message(translations, 'DESCONHECIDO')}[/dim]",
+        )
+        heroic.add_row(
+            _profile_message(translations, "Propriedade"),
+            f"[dim]{_profile_message(translations, 'Propriedade no Heroic não identificada.')}[/dim]",
+        )
         heroic_border = "cyan"
     _print_game_profile_section(console, "Heroic", heroic, border_style=heroic_border)
 
     steam = _game_profile_table()
     steam_provenance = profile.steam
     if steam_provenance.resolved:
-        steam.add_row("Status", "[green]✓ RESOLVED[/green]")
+        steam.add_row(
+            _profile_message(translations, "Status"),
+            f"[green]✓ {_profile_message(translations, 'RESOLVIDO')}[/green]",
+        )
         steam_match = steam_provenance.effective
         steam_prefix = steam_provenance.prefix
         assert steam_match is not None
         assert steam_prefix is not None
-        steam.add_row("AppID efetivo", str(steam_match.installed_game.app_id))
         steam.add_row(
-            "Library",
+            _profile_message(translations, "AppID efetivo"),
+            _profile_display_value(steam_match.installed_game.app_id),
+        )
+        steam.add_row(
+            _profile_message(translations, "Biblioteca"),
             _profile_display_value(steam_match.installed_game.library_root),
         )
         steam.add_row(
-            "Install path",
+            _profile_message(translations, "Caminho de instalação"),
             _profile_display_value(steam_match.installed_game.install_path),
         )
         steam.add_row(
-            "Evidência",
+            _profile_message(translations, "Evidência"),
             (
-                steam_provenance.strongest_evidence.value
+                _profile_display_value(steam_provenance.strongest_evidence.value)
                 if steam_provenance.strongest_evidence is not None
                 else unavailable
             ),
         )
-        steam.add_row("Prefix layout", steam_prefix.layout.name)
+        steam.add_row(
+            _profile_message(translations, "Layout do prefixo"),
+            _profile_display_value(steam_prefix.layout.name),
+        )
         if steam_prefix.structural_wine_prefix is not None:
             steam.add_row(
-                "Structural Wine prefix",
+                _profile_message(translations, "Prefixo Wine estrutural"),
                 _profile_display_value(steam_prefix.structural_wine_prefix),
             )
         steam_border = (
             "green" if steam_prefix.structural_wine_prefix is not None else "yellow"
         )
     elif steam_provenance.ambiguous:
-        steam.add_row("Status", "[yellow]⚠ AMBIGUOUS[/yellow]")
-        steam.add_row("Ownership", "[yellow]Mais de um match Steam[/yellow]")
-        steam.add_row("Candidates", str(len(steam_provenance.candidates)))
+        steam.add_row(
+            _profile_message(translations, "Status"),
+            f"[yellow]⚠ {_profile_message(translations, 'AMBÍGUO')}[/yellow]",
+        )
+        steam.add_row(
+            _profile_message(translations, "Propriedade"),
+            f"[yellow]{_profile_message(translations, 'Mais de uma correspondência na Steam')}[/yellow]",
+        )
+        steam.add_row(
+            _profile_message(translations, "Candidatos"),
+            _profile_display_value(len(steam_provenance.candidates)),
+        )
         steam_border = "yellow"
     else:
-        steam.add_row("Status", "[dim]UNKNOWN[/dim]")
-        steam.add_row("Ownership", "[dim]Steam ownership não identificado.[/dim]")
+        steam.add_row(
+            _profile_message(translations, "Status"),
+            f"[dim]{_profile_message(translations, 'DESCONHECIDO')}[/dim]",
+        )
+        steam.add_row(
+            _profile_message(translations, "Propriedade"),
+            f"[dim]{_profile_message(translations, 'Propriedade na Steam não identificada.')}[/dim]",
+        )
         steam_border = "cyan"
     _print_game_profile_section(console, "Steam", steam, border_style=steam_border)
 
     prefix = _game_profile_table()
     consensus = profile.prefix_consensus
     if consensus.resolved:
-        prefix.add_row("Status", "[green]✓ RESOLVED[/green]")
         prefix.add_row(
-            "Wine prefix efetivo",
+            _profile_message(translations, "Status"),
+            f"[green]✓ {_profile_message(translations, 'RESOLVIDO')}[/green]",
+        )
+        prefix.add_row(
+            _profile_message(translations, "Prefixo Wine efetivo"),
             _profile_display_value(consensus.effective_wine_prefix),
         )
         prefix.add_row(
-            "drive_c efetivo",
+            _profile_message(translations, "drive_c efetivo"),
             _profile_display_value(consensus.effective_drive_c),
         )
-        sources = ", ".join(evidence.source.name for evidence in consensus.evidences)
-        prefix.add_row("Fontes" if len(consensus.evidences) > 1 else "Fonte", sources)
+        sources = ", ".join(
+            _profile_display_value(evidence.source.name)
+            for evidence in consensus.evidences
+        )
+        prefix.add_row(
+            _profile_message(
+                translations,
+                "Fontes" if len(consensus.evidences) > 1 else "Fonte",
+            ),
+            sources,
+        )
         prefix_border = "green"
     elif consensus.conflict:
-        prefix.add_row("Status", "[red]✗ CONFLICT[/red]")
-        prefix.add_row("Resultado", "[red]Nenhuma fonte foi selecionada.[/red]")
+        prefix.add_row(
+            _profile_message(translations, "Status"),
+            f"[red]✗ {_profile_message(translations, 'CONFLITO')}[/red]",
+        )
+        prefix.add_row(
+            _profile_message(translations, "Resultado"),
+            f"[red]{_profile_message(translations, 'Nenhuma fonte foi selecionada.')}[/red]",
+        )
         for evidence in consensus.evidences:
             prefix.add_row(
-                evidence.source.name,
+                _profile_display_value(evidence.source.name),
                 _profile_display_value(evidence.wine_prefix),
             )
         prefix_border = "red"
     else:
-        prefix.add_row("Status", "[dim]UNKNOWN[/dim]")
         prefix.add_row(
-            "Resultado",
-            "[dim]Nenhuma evidência estrutural de prefixo via GSE ou Heroic "
-            "disponível.[/dim]",
+            _profile_message(translations, "Status"),
+            f"[dim]{_profile_message(translations, 'DESCONHECIDO')}[/dim]",
+        )
+        prefix.add_row(
+            _profile_message(translations, "Resultado"),
+            f"[dim]{_profile_message(translations, 'Nenhuma evidência estrutural de prefixo via GSE ou Heroic disponível.')}[/dim]",
         )
         prefix_border = "cyan"
     _print_game_profile_section(
         console,
-        "Prefix Consensus (GSE / Heroic)",
+        _profile_message(translations, "Consenso de prefixo (GSE / Heroic)"),
         prefix,
         border_style=prefix_border,
     )

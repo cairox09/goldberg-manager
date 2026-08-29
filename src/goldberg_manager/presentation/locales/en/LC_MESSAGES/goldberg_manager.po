@@ -42,3 +42,255 @@ msgstr "Main menu"
 
 msgid "Escolha uma ação:"
 msgstr "Choose an action:"
+
+msgid "Perfil do jogo"
+msgstr "Game profile"
+
+msgid "Identidade"
+msgstr "Identity"
+
+msgid "Saves / GSE"
+msgstr "Saves / GSE"
+
+msgid "Conquistas"
+msgstr "Achievements"
+
+msgid "Consenso de prefixo (GSE / Heroic)"
+msgstr "Prefix consensus (GSE / Heroic)"
+
+msgid "Não disponível"
+msgstr "Not available"
+
+msgid "Não identificado"
+msgstr "Not identified"
+
+msgid "Arquitetura"
+msgstr "Architecture"
+
+msgid "Executável"
+msgstr "Executable"
+
+msgid "Status"
+msgstr "Status"
+
+msgid "Nenhuma configuração identificada"
+msgstr "No configuration identified"
+
+msgid "Conta"
+msgstr "Account"
+
+msgid "Idioma"
+msgstr "Language"
+
+msgid "País"
+msgstr "Country"
+
+msgid "Resolução"
+msgstr "Resolution"
+
+msgid "GSE save não identificado"
+msgstr "GSE save not identified"
+
+msgid "Origem"
+msgstr "Source"
+
+msgid "Valor configurado"
+msgstr "Configured value"
+
+msgid "Ambígua"
+msgstr "Ambiguous"
+
+msgid "Save efetivo"
+msgstr "Effective save"
+
+msgid "Não determinado"
+msgstr "Not determined"
+
+msgid "Determinada"
+msgstr "Determined"
+
+msgid "Caminho não resolvido"
+msgstr "Path unresolved"
+
+#, python-brace-format
+msgid "Save possível #{index}"
+msgstr "Possible save #{index}"
+
+msgid "Metadados"
+msgstr "Metadata"
+
+msgid "Inválida"
+msgstr "Invalid"
+
+msgid "Encontrada"
+msgstr "Found"
+
+msgid "Não encontrada"
+msgstr "Not found"
+
+msgid "Runtime"
+msgstr "Runtime"
+
+#, python-brace-format
+msgid "Runtime #{index}"
+msgstr "Runtime #{index}"
+
+msgid "Total"
+msgstr "Total"
+
+#, python-brace-format
+msgid "Total #{index}"
+msgstr "Total #{index}"
+
+msgid "Desbloqueadas"
+msgstr "Unlocked"
+
+#, python-brace-format
+msgid "Desbloqueadas #{index}"
+msgstr "Unlocked #{index}"
+
+msgid "Bloqueadas"
+msgstr "Locked"
+
+#, python-brace-format
+msgid "Bloqueadas #{index}"
+msgstr "Locked #{index}"
+
+msgid "Conclusão"
+msgstr "Completion"
+
+#, python-brace-format
+msgid "Conclusão #{index}"
+msgstr "Completion #{index}"
+
+msgid "Progresso"
+msgstr "Progress"
+
+msgid "Runtime indisponível"
+msgstr "Runtime unavailable"
+
+msgid "Erros de leitura"
+msgstr "Read errors"
+
+msgid "Instalação"
+msgstr "Installation"
+
+msgid "Detectada"
+msgstr "Detected"
+
+msgid "Não detectada"
+msgstr "Not detected"
+
+msgid "Ausente"
+msgstr "Missing"
+
+msgid "Válida"
+msgstr "Valid"
+
+msgid "Configuração"
+msgstr "Configuration"
+
+msgid "Caminho da configuração"
+msgstr "Configuration path"
+
+msgid "Diagnóstico"
+msgstr "Diagnostic"
+
+msgid "Cobertura completa"
+msgstr "Full coverage"
+
+msgid "Cobertura parcial"
+msgstr "Partial coverage"
+
+msgid "Save efetivo não coberto"
+msgstr "Effective save not covered"
+
+msgid "Cobertura não confirmada"
+msgstr "Coverage not confirmed"
+
+msgid "Sem save efetivo para avaliar"
+msgstr "No effective save to evaluate"
+
+msgid "Integração GSE"
+msgstr "GSE integration"
+
+msgid "Runtime do Sentinel"
+msgstr "Sentinel runtime"
+
+msgid "Reconhecido"
+msgstr "Recognized"
+
+msgid "RESOLVIDO"
+msgstr "RESOLVED"
+
+msgid "AMBÍGUO"
+msgstr "AMBIGUOUS"
+
+msgid "DESCONHECIDO"
+msgstr "UNKNOWN"
+
+msgid "CONFLITO"
+msgstr "CONFLICT"
+
+msgid "Nome do aplicativo"
+msgstr "App name"
+
+msgid "Evidência"
+msgstr "Evidence"
+
+msgid "Prefixo configurado"
+msgstr "Configured prefix"
+
+msgid "Prefixo Wine estrutural"
+msgstr "Structural Wine prefix"
+
+msgid "Layout do prefixo"
+msgstr "Prefix layout"
+
+msgid "Propriedade"
+msgstr "Ownership"
+
+msgid "Mais de uma correspondência no Heroic"
+msgstr "Multiple Heroic matches"
+
+msgid "Candidatos"
+msgstr "Candidates"
+
+msgid "Propriedade no Heroic não identificada."
+msgstr "Heroic ownership not identified."
+
+msgid "AppID efetivo"
+msgstr "Effective AppID"
+
+msgid "Biblioteca"
+msgstr "Library"
+
+msgid "Caminho de instalação"
+msgstr "Install path"
+
+msgid "Mais de uma correspondência na Steam"
+msgstr "Multiple Steam matches"
+
+msgid "Propriedade na Steam não identificada."
+msgstr "Steam ownership not identified."
+
+msgid "Prefixo Wine efetivo"
+msgstr "Effective Wine prefix"
+
+msgid "drive_c efetivo"
+msgstr "Effective drive_c"
+
+msgid "Fonte"
+msgstr "Source"
+
+msgid "Fontes"
+msgstr "Sources"
+
+msgid "Resultado"
+msgstr "Result"
+
+msgid "Nenhuma fonte foi selecionada."
+msgstr "No source was selected."
+
+msgid "Nenhuma evidência estrutural de prefixo via GSE ou Heroic disponível."
+msgstr "No structural prefix evidence from GSE or Heroic is available."

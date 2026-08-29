@@ -576,7 +576,10 @@ def show_game_details(
             show_game_profile(game)
 
         elif choice == "achievement_progress":
-            show_game_achievement_status(game)
+            show_game_achievement_status(
+                game,
+                translations=translations,
+            )
 
         elif choice == "gse_saves":
             show_game_gse_status(
@@ -1285,6 +1288,7 @@ def _achievement_report_table(
     report: AchievementReport,
     *,
     confirmed_runtime: bool,
+    translations: Translations,
 ) -> Table:
     table = Table.grid(
         padding=(0, 2),
@@ -1300,37 +1304,37 @@ def _achievement_report_table(
 
     if report.runtime_path is not None:
         table.add_row(
-            "Runtime",
-            str(report.runtime_path),
+            Text(translations.gettext("Runtime")),
+            Text(str(report.runtime_path)),
         )
 
     table.add_row(
-        "Disponíveis",
-        str(report.total),
+        Text(translations.gettext("Disponíveis")),
+        Text(str(report.total)),
     )
 
     if confirmed_runtime:
         table.add_row(
-            "Desbloqueadas",
-            str(report.unlocked),
+            Text(translations.gettext("Desbloqueadas")),
+            Text(str(report.unlocked)),
         )
         table.add_row(
-            "Bloqueadas",
-            str(report.locked),
+            Text(translations.gettext("Bloqueadas")),
+            Text(str(report.locked)),
         )
         table.add_row(
-            "Parciais",
-            str(report.partial),
+            Text(translations.gettext("Parciais")),
+            Text(str(report.partial)),
         )
         table.add_row(
-            "Conclusão",
-            f"{report.completion_percentage:.1f}%",
+            Text(translations.gettext("Conclusão")),
+            Text(f"{report.completion_percentage:.1f}%"),
         )
 
     if report.unknown_runtime_names:
         table.add_row(
-            "Runtime sem metadata",
-            str(len(report.unknown_runtime_names)),
+            Text(translations.gettext("Runtime sem metadados")),
+            Text(str(len(report.unknown_runtime_names))),
         )
 
     return table
@@ -1338,9 +1342,52 @@ def _achievement_report_table(
 
 def show_game_achievement_status(
     game: Game,
+    *,
+    translations: Translations | None = None,
 ) -> None:
     clear_screen()
     render_header()
+
+    if translations is None:
+        translations = load_translations()
+
+    def message(text: str) -> str:
+        return translations.gettext(text)
+
+    def status_text(
+        symbol: str,
+        text: str,
+        style: str,
+        **values: object,
+    ) -> Text:
+        status = Text()
+        status.append(symbol, style=style)
+        status.append(" ", style=style)
+        translated = message(text)
+        status.append(
+            translated.format(**values) if values else translated,
+            style=style,
+        )
+        return status
+
+    def achievement_title(
+        section: str | None = None,
+        *,
+        runtime_index: int | None = None,
+    ) -> Text:
+        title = Text(message("Conquistas"))
+
+        if section is not None:
+            title.append(" • ")
+            title.append(message(section))
+
+        if runtime_index is not None:
+            title.append(" • ")
+            title.append(message("Runtime"))
+            title.append(" #")
+            title.append(str(runtime_index))
+
+        return title
 
     try:
         resolution = resolve_game_achievement_progress(game)
@@ -1349,15 +1396,22 @@ def show_game_achievement_status(
         OSError,
         ValueError,
     ) as error:
+        error_content = Text()
+        error_content.append(
+            message("Não foi possível resolver o progresso de conquistas."),
+            style="red",
+        )
+        error_content.append("\n\n")
+        error_content.append(str(error))
+
         console.print(
             Panel.fit(
-                "[red]Não foi possível resolver o progresso "
-                f"de achievements.[/red]\n\n{error}",
+                error_content,
                 border_style="red",
                 box=box.ROUNDED,
             )
         )
-        pause()
+        pause(message("Pressione Enter para continuar..."))
         return
 
     gse_resolution = resolution.gse_resolution
@@ -1381,50 +1435,61 @@ def show_game_achievement_status(
         style="white",
     )
     overview.add_row(
-        "Jogo",
-        game.name,
+        Text(message("Jogo")),
+        Text(str(game.name)),
     )
     overview.add_row(
-        "AppID",
+        Text("AppID"),
         (
-            str(gse_resolution.app_id)
+            Text(str(gse_resolution.app_id))
             if gse_resolution.app_id is not None
-            else "[yellow]⚠ Não resolvido[/yellow]"
+            else status_text("⚠", "Não resolvido", "yellow")
         ),
     )
 
     if not resolution.metadata_exists:
-        metadata_status = (
-            f"[yellow]⚠ Não encontrado[/yellow] • {resolution.metadata_path}"
-        )
+        metadata_status = status_text("⚠", "Não encontrada", "yellow")
     elif metadata_error is not None:
-        metadata_status = f"[red]✗ Metadata inválida[/red] • {resolution.metadata_path}"
+        metadata_status = status_text("✗", "Inválida", "red")
     else:
-        metadata_status = f"[green]✓ Encontrado[/green] • {resolution.metadata_path}"
+        metadata_status = status_text("✓", "Encontrada", "green")
+
+    metadata_status.append(" • ")
+    metadata_status.append(str(resolution.metadata_path))
 
     overview.add_row(
-        "Metadata",
+        Text(message("Metadados")),
         metadata_status,
     )
     overview.add_row(
-        "Idioma",
-        resolution.language,
+        Text(message("Idioma")),
+        Text(str(resolution.language)),
     )
 
     if resolution.runtime_paths:
         runtime_count = len(resolution.runtime_paths)
-        runtime_status = (
-            f"[green]✓ {runtime_count} "
-            + ("arquivo encontrado" if runtime_count == 1 else "arquivos encontrados")
-            + "[/green]"
+        runtime_message = (
+            "{count} arquivo encontrado"
+            if runtime_count == 1
+            else "{count} arquivos encontrados"
+        )
+        runtime_status = status_text(
+            "✓",
+            runtime_message,
+            "green",
+            count=runtime_count,
         )
     elif not resolution.runtime_resolved:
-        runtime_status = "[yellow]⚠ Não resolvido[/yellow]"
+        runtime_status = status_text("⚠", "Não resolvido", "yellow")
     else:
-        runtime_status = "[yellow]⚠ achievements.json ainda não criado[/yellow]"
+        runtime_status = Text()
+        runtime_status.append("⚠ ", style="yellow")
+        runtime_status.append("achievements.json", style="yellow")
+        runtime_status.append(" • ", style="yellow")
+        runtime_status.append(message("Ainda não criado"), style="yellow")
 
     overview.add_row(
-        "Runtime",
+        Text(message("Runtime")),
         runtime_status,
     )
 
@@ -1439,16 +1504,20 @@ def show_game_achievement_status(
             save_resolution.locations,
             start=1,
         ):
-            suffix = f" #{index}" if multiple_locations else ""
+            expected_runtime_label = Text(message("Runtime esperado"))
+            if multiple_locations:
+                expected_runtime_label.append(" #")
+                expected_runtime_label.append(str(index))
+
             overview.add_row(
-                f"Runtime esperado{suffix}",
-                str(location.achievements_path),
+                expected_runtime_label,
+                Text(str(location.achievements_path)),
             )
 
     console.print(
         Panel(
             overview,
-            title="Achievements • Progresso",
+            title=achievement_title("Progresso"),
             border_style=(
                 "green"
                 if resolution.metadata_exists
@@ -1461,10 +1530,18 @@ def show_game_achievement_status(
     )
 
     if metadata_error is not None:
+        metadata_error_content = Text()
+        metadata_error_content.append(
+            message("Não foi possível ler os metadados."),
+            style="red",
+        )
+        metadata_error_content.append("\n\n")
+        metadata_error_content.append(str(metadata_error.message))
+
         console.print()
         console.print(
             Panel.fit(
-                f"[red]Não foi possível ler a metadata.[/red]\n\n{metadata_error.message}",
+                metadata_error_content,
                 border_style="red",
                 box=box.ROUNDED,
             )
@@ -1488,8 +1565,9 @@ def show_game_achievement_status(
                         _achievement_report_table(
                             metadata_report,
                             confirmed_runtime=False,
+                            translations=translations,
                         ),
-                        title="Achievements • Metadata",
+                        title=achievement_title("Metadados"),
                         border_style="yellow",
                         box=box.ROUNDED,
                     )
@@ -1512,8 +1590,9 @@ def show_game_achievement_status(
                         _achievement_report_table(
                             metadata_report,
                             confirmed_runtime=True,
+                            translations=translations,
                         ),
-                        title="Achievements",
+                        title=achievement_title(),
                         border_style="yellow",
                         box=box.ROUNDED,
                     )
@@ -1542,8 +1621,6 @@ def show_game_achievement_status(
                     ),
                     None,
                 )
-                suffix = f" • Runtime #{index}" if multiple_runtimes else ""
-
                 console.print()
 
                 if report is not None:
@@ -1552,28 +1629,44 @@ def show_game_achievement_status(
                             _achievement_report_table(
                                 report,
                                 confirmed_runtime=True,
+                                translations=translations,
                             ),
-                            title=f"Achievements{suffix}",
+                            title=achievement_title(
+                                runtime_index=index if multiple_runtimes else None,
+                            ),
                             border_style="green",
                             box=box.ROUNDED,
                         )
                     )
                 elif error is not None:
+                    runtime_error_content = Text()
+                    runtime_error_content.append(
+                        message("Runtime inválido"),
+                        style="red",
+                    )
+                    runtime_error_content.append(": ")
+                    runtime_error_content.append(str(runtime_path))
+                    runtime_error_content.append("\n\n")
+                    runtime_error_content.append(str(error.message))
+
                     console.print(
                         Panel.fit(
-                            f"[red]Runtime inválido:[/red] {runtime_path}\n\n"
-                            f"{error.message}",
-                            title=f"Achievements{suffix}",
+                            runtime_error_content,
+                            title=achievement_title(
+                                runtime_index=index if multiple_runtimes else None,
+                            ),
                             border_style="red",
                             box=box.ROUNDED,
                         )
                     )
 
     console.print()
-    console.print(
-        "[dim]Somente leitura • nenhum arquivo de achievements foi alterado.[/dim]"
-    )
-    pause()
+    footer = Text(style="dim")
+    footer.append(message("Somente leitura"))
+    footer.append(" • ")
+    footer.append(message("nenhum arquivo de conquistas foi alterado."))
+    console.print(footer)
+    pause(message("Pressione Enter para continuar..."))
 
 
 def show_game_gse_status(

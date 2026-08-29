@@ -12,6 +12,7 @@ from unittest.mock import patch
 from rich.console import Console
 
 from goldberg_manager.cli import render_game_profile, show_game_profile
+from goldberg_manager.presentation.i18n import load_translations
 from goldberg_manager.scanner import Game
 
 
@@ -210,11 +211,14 @@ def make_profile(
     )
 
 
-def render(profile: SimpleNamespace) -> str:
+def render(profile: SimpleNamespace, *, translations=None) -> str:
     output = StringIO()
     test_console = Console(file=output, width=220, color_system=None)
     with patch("goldberg_manager.cli.console", test_console):
-        render_game_profile(profile)
+        if translations is None:
+            render_game_profile(profile)
+        else:
+            render_game_profile(profile, translations=translations)
     return output.getvalue()
 
 
@@ -238,11 +242,14 @@ class GameProfilePresentationTests(unittest.TestCase):
         )
         profile.sentinel.status.error = "bad [/red] metadata"
         profile.heroic = resolved_heroic(
-            "DIRECT",
+            "[blue]DIRECT[/blue]",
             configured_prefix=Path("/Heroic/[Prefix]"),
             structural_wine_prefix=Path("/Heroic/[Prefix]"),
             runner="[cyan]legendary[/cyan]",
             app_name="Heroic [/green][DODI]",
+        )
+        profile.heroic.strongest_evidence.value = (
+            "[magenta]game-root-equals-install-path[/magenta]"
         )
         profile.steam = resolved_steam(
             Path("/Steam/[Library]"),
@@ -250,16 +257,20 @@ class GameProfilePresentationTests(unittest.TestCase):
             install_path=Path("/Steam/[Library]/Brawlhalla"),
             structural_wine_prefix=Path("/Steam/[Library]/compatdata/291550/pfx"),
         )
+        profile.steam.strongest_evidence.value = (
+            "[magenta]game-root-equals-install-path[/magenta]"
+        )
+        profile.steam.prefix.layout.name = "[blue]PFX_SUBDIRECTORY[/blue]"
         profile.prefix_consensus = namespace(
             resolved=False,
             conflict=True,
             evidences=(
                 namespace(
-                    source=namespace(name="GSE_RUNTIME"),
+                    source=namespace(name="[green]GSE_RUNTIME[/green]"),
                     wine_prefix=Path("/Prefixes/[GSE]"),
                 ),
                 namespace(
-                    source=namespace(name="HEROIC"),
+                    source=namespace(name="[green]HEROIC[/green]"),
                     wine_prefix=Path("/Prefixes/[Heroic]"),
                 ),
             ),
@@ -282,12 +293,111 @@ class GameProfilePresentationTests(unittest.TestCase):
             "/Heroic/[Prefix]",
             "/Steam/[Library]",
             "/Prefixes/[GSE]",
-            "RESOLVED",
-            "CONFLICT",
+            "[blue]DIRECT[/blue]",
+            "[magenta]game-root-equals-install-path[/magenta]",
+            "[blue]PFX_SUBDIRECTORY[/blue]",
+            "[green]GSE_RUNTIME[/green]",
+            "[green]HEROIC[/green]",
+            "RESOLVIDO",
+            "CONFLITO",
         ):
             self.assertIn(expected, rendered)
-        self.assertNotIn("[green]✓ RESOLVED[/green]", rendered)
-        self.assertNotIn("[red]✗ CONFLICT[/red]", rendered)
+        self.assertNotIn("[green]✓ RESOLVIDO[/green]", rendered)
+        self.assertNotIn("[red]✗ CONFLITO[/red]", rendered)
+
+    def test_cli_facade_accepts_explicit_english_and_preserves_identifiers(
+        self,
+    ) -> None:
+        profile = make_profile()
+        original_evidence = profile.heroic.strongest_evidence.value
+        original_layout = profile.heroic.effective.prefix.layout.name
+        original_sources = tuple(
+            evidence.source.name for evidence in profile.prefix_consensus.evidences
+        )
+
+        rendered = render(profile, translations=load_translations("en"))
+
+        for expected in (
+            "Game profile",
+            "Settings",
+            "Achievements",
+            "Metadata",
+            "Unlocked",
+            "Locked",
+            "Completion",
+            "Full coverage",
+            "RESOLVED",
+            "App name",
+            "Evidence",
+            "Configured prefix",
+            "Structural Wine prefix",
+            "Prefix layout",
+            "Effective Wine prefix",
+            "Sources",
+            "Prefix consensus (GSE / Heroic)",
+            "steam_appid.txt",
+            "game-root-equals-install-path",
+            "DIRECT",
+            "GSE_RUNTIME, HEROIC",
+            "brazilian",
+            "BR",
+        ):
+            self.assertIn(expected, rendered)
+        self.assertEqual(profile.heroic.strongest_evidence.value, original_evidence)
+        self.assertEqual(profile.heroic.effective.prefix.layout.name, original_layout)
+        self.assertEqual(
+            tuple(
+                evidence.source.name for evidence in profile.prefix_consensus.evidences
+            ),
+            original_sources,
+        )
+
+    def test_explicit_english_translates_ambiguous_and_conflict_states(
+        self,
+    ) -> None:
+        profile = make_profile()
+        profile.heroic = namespace(
+            resolved=False,
+            ambiguous=True,
+            candidates=(namespace(), namespace()),
+            effective=None,
+            strongest_evidence=None,
+        )
+        profile.steam = namespace(
+            resolved=False,
+            ambiguous=True,
+            candidates=(namespace(), namespace()),
+            effective=None,
+            prefix=None,
+            strongest_evidence=None,
+        )
+        profile.prefix_consensus = namespace(
+            resolved=False,
+            conflict=True,
+            evidences=(
+                namespace(
+                    source=namespace(name="GSE_RUNTIME"),
+                    wine_prefix=Path("/prefixes/gse"),
+                ),
+                namespace(
+                    source=namespace(name="HEROIC"),
+                    wine_prefix=Path("/prefixes/heroic"),
+                ),
+            ),
+            effective_wine_prefix=None,
+            effective_drive_c=None,
+        )
+
+        rendered = render(profile, translations=load_translations("en"))
+
+        self.assertGreaterEqual(rendered.count("AMBIGUOUS"), 2)
+        self.assertIn("Multiple Heroic matches", rendered)
+        self.assertIn("Multiple Steam matches", rendered)
+        self.assertIn("Candidates", rendered)
+        self.assertIn("CONFLICT", rendered)
+        self.assertIn("No source was selected.", rendered)
+        self.assertIn("GSE_RUNTIME", rendered)
+        self.assertIn("HEROIC", rendered)
 
     def test_known_identity_settings_progress_sentinel_and_multiple_sources(
         self,
@@ -350,9 +460,9 @@ class GameProfilePresentationTests(unittest.TestCase):
         self.assertIn("12", rendered)
         self.assertIn("Runtime indisponível", rendered)
         self.assertNotIn("Desbloqueadas", rendered)
-        self.assertIn("Heroic ownership não identificado", rendered)
-        self.assertIn("Steam ownership não identificado", rendered)
-        self.assertIn("Prefix Consensus (GSE / Heroic)", rendered)
+        self.assertIn("Propriedade no Heroic não identificada", rendered)
+        self.assertIn("Propriedade na Steam não identificada", rendered)
+        self.assertIn("Consenso de prefixo (GSE / Heroic)", rendered)
         self.assertIn(
             "Nenhuma evidência estrutural de prefixo via GSE ou Heroic disponível",
             rendered,
@@ -361,7 +471,7 @@ class GameProfilePresentationTests(unittest.TestCase):
         profile.achievements.metadata_exists = False
         profile.achievements.reports = ()
         rendered = render(profile)
-        self.assertIn("Metadata", rendered)
+        self.assertIn("Metadados", rendered)
         self.assertIn("Não encontrada", rendered)
 
     def test_invalid_sentinel_and_prefix_conflict_are_explicit(self) -> None:
@@ -394,7 +504,7 @@ class GameProfilePresentationTests(unittest.TestCase):
 
         self.assertIn("Inválida", rendered)
         self.assertIn("JSON inválido", rendered)
-        self.assertIn("CONFLICT", rendered)
+        self.assertIn("CONFLITO", rendered)
         self.assertIn("Nenhuma fonte foi selecionada", rendered)
         self.assertIn("/prefixes/gse", rendered)
         self.assertIn("/prefixes/heroic", rendered)
@@ -425,9 +535,9 @@ class GameProfilePresentationTests(unittest.TestCase):
         self.assertIn("/custom/sonic/GSE Saves", rendered)
         self.assertIn("SonicFrontiers", rendered)
         self.assertIn("DIRECT", rendered)
-        self.assertIn("Configured prefix", rendered)
-        self.assertIn("Structural Wine prefix", rendered)
-        self.assertIn("Steam ownership não identificado", rendered)
+        self.assertIn("Prefixo configurado", rendered)
+        self.assertIn("Prefixo Wine estrutural", rendered)
+        self.assertIn("Propriedade na Steam não identificada", rendered)
 
     def test_tlou_like_profile(self) -> None:
         profile = make_profile(game=make_game(name="The Last of Us Part I"))
@@ -477,7 +587,7 @@ class GameProfilePresentationTests(unittest.TestCase):
         self.assertIn("Invincible Presents: Atom Eve", rendered)
         self.assertIn("MISSING", rendered)
         self.assertIn("/heroic/Prefixes/Invincible", rendered)
-        self.assertIn("Structural Wine prefix", rendered)
+        self.assertIn("Prefixo Wine estrutural", rendered)
         self.assertIn("Não disponível", rendered)
         self.assertIn(
             "Nenhuma evidência estrutural de prefixo via GSE ou Heroic disponível",
@@ -499,14 +609,14 @@ class GameProfilePresentationTests(unittest.TestCase):
         rendered = render(profile)
 
         self.assertIn("Brawlhalla", rendered)
-        self.assertIn("Heroic ownership não identificado", rendered)
+        self.assertIn("Propriedade no Heroic não identificada", rendered)
         self.assertIn("AppID efetivo", rendered)
         self.assertIn("291550", rendered)
         self.assertIn("/steam/steamapps/common/Brawlhalla", rendered)
         self.assertIn("PFX_SUBDIRECTORY", rendered)
         self.assertIn("/steam/steamapps/compatdata/291550/pfx", rendered)
-        self.assertIn("Prefix Consensus (GSE / Heroic)", rendered)
-        self.assertIn("UNKNOWN", rendered)
+        self.assertIn("Consenso de prefixo (GSE / Heroic)", rendered)
+        self.assertIn("DESCONHECIDO", rendered)
         self.assertIn(
             "Nenhuma evidência estrutural de prefixo via GSE ou Heroic disponível",
             rendered,

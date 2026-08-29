@@ -467,7 +467,7 @@ class AchievementGameResolutionTests(unittest.TestCase):
             )
             profile.assert_called_once_with(game)
             progress.assert_called_once_with(game)
-            gse_status.assert_called_once_with(game)
+            gse_status.assert_called_once_with(game, translations=ANY)
             sentinel.assert_called_once_with(game, translations=ANY)
             integration.assert_called_once_with(game)
             repair_integration.assert_called_once_with(game)

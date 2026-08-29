@@ -438,3 +438,48 @@ msgstr "Read-only • no Sentinel or GSE file was changed."
 
 msgid "Pressione Enter para continuar..."
 msgstr "Press Enter to continue..."
+
+msgid "Save do GSE"
+msgstr "GSE save"
+
+msgid "Não foi possível resolver"
+msgstr "Could not be resolved"
+
+msgid "GSE padrão"
+msgstr "GSE default"
+
+msgid "Origem do save"
+msgstr "Save source"
+
+msgid "Motivo provável"
+msgstr "Likely reason"
+
+msgid "Nenhum prefixo Wine/Proton foi encontrado no Sentinel."
+msgstr "No Wine/Proton prefix was found in Sentinel."
+
+msgid "Raiz efetiva"
+msgstr "Effective root"
+
+msgid "Raiz possível"
+msgstr "Possible root"
+
+msgid "Diretório do AppID"
+msgstr "AppID directory"
+
+msgid "Diretório possível do AppID"
+msgstr "Possible AppID directory"
+
+msgid "Existe"
+msgstr "Exists"
+
+msgid "Caminho possível de achievements.json"
+msgstr "Possible achievements.json path"
+
+msgid "Resolução de saves"
+msgstr "Save resolution"
+
+msgid "Somente leitura"
+msgstr "Read-only"
+
+msgid "nenhum save ou arquivo de configuração foi alterado."
+msgstr "no save or configuration file was changed."

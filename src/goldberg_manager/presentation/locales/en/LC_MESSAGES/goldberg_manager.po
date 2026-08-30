@@ -716,3 +716,30 @@ msgstr "Could not resolve the game profile."
 
 msgid "nenhum arquivo ou configuração foi alterado."
 msgstr "no file or configuration was changed."
+
+msgid "Entre em Configurações e adicione um diretório."
+msgstr "Go to Settings and add a directory."
+
+msgid "Nenhum jogo foi encontrado."
+msgstr "No games were found."
+
+msgid "Jogos encontrados"
+msgstr "Games found"
+
+msgid "Configurável"
+msgstr "Configurable"
+
+msgid "Steam API ausente"
+msgstr "Steam API missing"
+
+msgid "Não localizada"
+msgstr "Not found"
+
+msgid "Não configurável"
+msgstr "Not configurable"
+
+msgid "O executável foi detectado, mas nenhuma Steam API foi localizada."
+msgstr "The executable was detected, but no Steam API was found."
+
+msgid "As funções que dependem da Steam API não estão disponíveis para este jogo."
+msgstr "Features that depend on the Steam API are not available for this game."

@@ -632,18 +632,38 @@ def show_game_details(
             return
 
 
-def get_detected_games(config: AppConfig) -> list[Game] | None:
+def get_detected_games(
+    config: AppConfig,
+    *,
+    translations: Translations | None = None,
+) -> list[Game] | None:
     if not config.games.directories:
-        console.print("[yellow]Nenhum diretório de jogos foi configurado.[/yellow]")
-        console.print("Adicione um diretório em Configurações.")
-        pause()
+        if translations is None:
+            translations = load_translations()
+        console.print(
+            Text(
+                translations.gettext("Nenhum diretório de jogos foi configurado."),
+                style="yellow",
+            )
+        )
+        console.print(
+            Text(translations.gettext("Adicione um diretório em Configurações."))
+        )
+        pause(translations.gettext("Pressione Enter para continuar..."))
         return None
 
     games = detect_games(config.games.directories)
 
     if not games:
-        console.print("[yellow]Nenhum jogo compatível foi encontrado.[/yellow]")
-        pause()
+        if translations is None:
+            translations = load_translations()
+        console.print(
+            Text(
+                translations.gettext("Nenhum jogo compatível foi encontrado."),
+                style="yellow",
+            )
+        )
+        pause(translations.gettext("Pressione Enter para continuar..."))
         return None
 
     return games
@@ -697,7 +717,13 @@ def get_menu_game(
     if game is not None:
         return game
 
-    games = get_detected_games(config)
+    if translations is None:
+        translations = load_translations()
+
+    games = get_detected_games(
+        config,
+        translations=translations,
+    )
 
     if games is None:
         return None
@@ -4628,11 +4654,21 @@ def restore_game_menu(config: AppConfig) -> None:
     restore_game_api(game)
 
 
-def open_game_directory_menu(config: AppConfig) -> None:
+def open_game_directory_menu(
+    config: AppConfig,
+    *,
+    translations: Translations | None = None,
+) -> None:
     clear_screen()
     render_header()
 
-    games = get_detected_games(config)
+    if translations is None:
+        translations = load_translations()
+
+    games = get_detected_games(
+        config,
+        translations=translations,
+    )
 
     if games is None:
         return
@@ -4640,6 +4676,7 @@ def open_game_directory_menu(config: AppConfig) -> None:
     game = select_game(
         games,
         "Selecione o jogo cuja pasta deseja abrir:",
+        translations=translations,
     )
 
     if game is None:
@@ -4651,8 +4688,15 @@ def open_game_directory_menu(config: AppConfig) -> None:
             check=True,
         )
     except (OSError, subprocess.CalledProcessError) as exc:
-        console.print(f"[red]Não foi possível abrir a pasta do jogo:[/red] {exc}")
-        pause()
+        error_message = Text()
+        error_message.append(
+            translations.gettext("Não foi possível abrir a pasta do jogo:"),
+            style="red",
+        )
+        error_message.append(" ")
+        error_message.append(str(exc))
+        console.print(error_message)
+        pause(translations.gettext("Pressione Enter para continuar..."))
 
 
 def get_game_assistant_status(

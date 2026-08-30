@@ -682,26 +682,61 @@ class ReusableGameSelectionI18nTests(unittest.TestCase):
         game = make_game("Jogo")
 
         with (
+            patch("goldberg_manager.cli.load_translations") as load_translations,
             patch("goldberg_manager.cli.get_detected_games") as get_detected_games,
             patch("goldberg_manager.cli.select_game") as select_game_mock,
         ):
-            selected = get_menu_game(
-                config,
-                game,
-                "Mensagem:",
-                translations=FakeTranslations("translated"),
-            )
+            selected = get_menu_game(config, game, "Mensagem:")
 
         self.assertIs(selected, game)
+        load_translations.assert_not_called()
         get_detected_games.assert_not_called()
         select_game_mock.assert_not_called()
 
-    def test_get_menu_game_propagates_explicit_translations(self) -> None:
+    def test_get_menu_game_loads_once_and_propagates_exact_translations(self) -> None:
         config = object()
         games = [make_game("Jogo")]
         translations = FakeTranslations("translated")
 
         with (
+            patch(
+                "goldberg_manager.cli.load_translations",
+                return_value=translations,
+            ) as load_translations,
+            patch(
+                "goldberg_manager.cli.get_detected_games",
+                return_value=games,
+            ) as get_detected_games,
+            patch(
+                "goldberg_manager.cli.select_game",
+                return_value=games[0],
+            ) as select_game_mock,
+        ):
+            selected = get_menu_game(
+                config,
+                None,
+                "Mensagem:",
+            )
+
+        self.assertIs(selected, games[0])
+        load_translations.assert_called_once_with()
+        get_detected_games.assert_called_once_with(
+            config,
+            translations=translations,
+        )
+        select_game_mock.assert_called_once_with(
+            games,
+            "Mensagem:",
+            translations=translations,
+        )
+
+    def test_get_menu_game_explicit_translations_bypass_loader(self) -> None:
+        config = object()
+        games = [make_game("Jogo")]
+        translations = FakeTranslations("translated")
+
+        with (
+            patch("goldberg_manager.cli.load_translations") as load_translations,
             patch(
                 "goldberg_manager.cli.get_detected_games",
                 return_value=games,
@@ -719,12 +754,34 @@ class ReusableGameSelectionI18nTests(unittest.TestCase):
             )
 
         self.assertIs(selected, games[0])
-        get_detected_games.assert_called_once_with(config)
-        select_game_mock.assert_called_once_with(
-            games,
-            "Mensagem:",
+        load_translations.assert_not_called()
+        self.assertIs(get_detected_games.call_args.kwargs["translations"], translations)
+        self.assertIs(select_game_mock.call_args.kwargs["translations"], translations)
+
+    def test_get_menu_game_detection_failure_does_not_select(self) -> None:
+        config = object()
+        translations = FakeTranslations("translated")
+
+        with (
+            patch(
+                "goldberg_manager.cli.get_detected_games",
+                return_value=None,
+            ) as get_detected_games,
+            patch("goldberg_manager.cli.select_game") as select_game_mock,
+        ):
+            selected = get_menu_game(
+                config,
+                None,
+                "Mensagem:",
+                translations=translations,
+            )
+
+        self.assertIsNone(selected)
+        get_detected_games.assert_called_once_with(
+            config,
             translations=translations,
         )
+        select_game_mock.assert_not_called()
 
 
 if __name__ == "__main__":

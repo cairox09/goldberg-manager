@@ -737,7 +737,12 @@ def get_menu_game(
 
 def show_game_candidate_details(
     candidate: GameCandidate,
+    *,
+    translations: Translations | None = None,
 ) -> None:
+    if translations is None:
+        translations = load_translations()
+
     clear_screen()
     render_header()
 
@@ -753,74 +758,99 @@ def show_game_candidate_details(
     )
 
     table.add_row(
-        "Nome",
-        candidate.name,
+        Text(translations.gettext("Nome")),
+        Text(candidate.name),
     )
 
     table.add_row(
-        "Raiz do jogo",
-        str(candidate.root_directory),
+        Text(translations.gettext("Raiz do jogo")),
+        Text(str(candidate.root_directory)),
     )
 
     table.add_row(
-        "Executável",
-        str(candidate.executable),
+        Text(translations.gettext("Executável")),
+        Text(str(candidate.executable)),
     )
 
     table.add_row(
-        "Steam API",
-        "[yellow]Não localizada[/yellow]",
+        Text("Steam API"),
+        Text(translations.gettext("Não localizada"), style="yellow"),
     )
 
     table.add_row(
-        "Status",
-        "[yellow]Não configurável[/yellow]",
+        Text(translations.gettext("Status")),
+        Text(translations.gettext("Não configurável"), style="yellow"),
     )
 
     table.add_row(
-        "Origem da detecção",
-        str(candidate.source_directory),
+        Text(translations.gettext("Origem da detecção")),
+        Text(str(candidate.source_directory)),
     )
 
     console.print(
         Panel(
             table,
-            title="Detalhes do jogo",
+            title=Text(translations.gettext("Detalhes do jogo")),
             border_style="yellow",
             box=box.ROUNDED,
+        )
+    )
+
+    explanation = Text()
+    explanation.append(
+        translations.gettext(
+            "O executável foi detectado, mas nenhuma Steam API foi localizada."
+        ),
+        style="yellow",
+    )
+    explanation.append("\n\n")
+    explanation.append(
+        translations.gettext(
+            "As funções que dependem da Steam API não estão disponíveis para este jogo."
         )
     )
 
     console.print(
         Panel.fit(
-            "[yellow]O executável foi detectado, "
-            "mas nenhuma Steam API foi localizada.[/yellow]\n\n"
-            "As funções que dependem da Steam API "
-            "não estão disponíveis para este jogo.",
+            explanation,
             border_style="yellow",
             box=box.ROUNDED,
         )
     )
 
-    pause()
+    pause(translations.gettext("Pressione Enter para continuar..."))
 
 
 def show_games(
     config: AppConfig,
+    *,
+    translations: Translations | None = None,
 ) -> None:
+    if translations is None:
+        translations = load_translations()
+
     clear_screen()
     render_header()
 
     if not config.games.directories:
+        message = Text()
+        message.append(
+            translations.gettext("Nenhum diretório de jogos foi configurado."),
+            style="yellow",
+        )
+        message.append("\n\n")
+        message.append(
+            translations.gettext("Entre em Configurações e adicione um diretório.")
+        )
+
         console.print(
             Panel.fit(
-                "[yellow]Nenhum diretório de jogos foi configurado.[/yellow]\n\n"
-                "Entre em Configurações e adicione um diretório.",
+                message,
                 border_style="yellow",
                 box=box.ROUNDED,
             )
         )
-        pause()
+        pause(translations.gettext("Pressione Enter para continuar..."))
         return
 
     candidates = discover_game_candidates(config.games.directories)
@@ -828,16 +858,19 @@ def show_games(
     if not candidates:
         console.print(
             Panel.fit(
-                "[yellow]Nenhum jogo foi encontrado.[/yellow]",
+                Text(
+                    translations.gettext("Nenhum jogo foi encontrado."),
+                    style="yellow",
+                ),
                 border_style="yellow",
                 box=box.ROUNDED,
             )
         )
-        pause()
+        pause(translations.gettext("Pressione Enter para continuar..."))
         return
 
     table = Table(
-        title="Jogos encontrados",
+        title=Text(translations.gettext("Jogos encontrados")),
         box=box.ROUNDED,
         border_style="green",
     )
@@ -850,24 +883,24 @@ def show_games(
     )
 
     table.add_column(
-        "Jogo",
+        Text(translations.gettext("Jogo")),
         style="bold",
     )
 
     table.add_column(
-        "Arquitetura",
+        Text(translations.gettext("Arquitetura")),
     )
 
     table.add_column(
-        "Steam API",
+        Text("Steam API"),
     )
 
     table.add_column(
-        "Status",
+        Text(translations.gettext("Status")),
     )
 
     table.add_column(
-        "Executável",
+        Text(translations.gettext("Executável")),
     )
 
     for index, candidate in enumerate(
@@ -879,60 +912,72 @@ def show_games(
 
             steam_api = candidate.game.steam_api.name
 
-            status = "[green]✓ Configurável[/green]"
+            status = Text("✓ ", style="green")
+            status.append(
+                translations.gettext("Configurável"),
+                style="green",
+            )
 
         else:
             architecture = "—"
             steam_api = "—"
 
-            status = "[yellow]⚠ Steam API ausente[/yellow]"
+            status = Text("⚠ ", style="yellow")
+            status.append(
+                translations.gettext("Steam API ausente"),
+                style="yellow",
+            )
 
         table.add_row(
-            str(index),
-            candidate.name,
-            architecture,
-            steam_api,
+            Text(str(index)),
+            Text(candidate.name),
+            Text(architecture),
+            Text(steam_api),
             status,
-            candidate.executable.name,
+            Text(candidate.executable.name),
         )
 
     console.print(table)
 
     choices = [
-        (f"{index} - {candidate.name}")
+        questionary.Choice(
+            title=f"{index} - {candidate.name}",
+            value=index - 1,
+        )
         for index, candidate in enumerate(
             candidates,
             start=1,
         )
     ]
 
-    choices.append("Voltar")
+    choices.append(
+        questionary.Choice(
+            title=translations.gettext("Voltar"),
+            value="back",
+        )
+    )
 
     selected = questionary.select(
-        "Selecione um jogo:",
+        translations.gettext("Selecione um jogo:"),
         choices=choices,
     ).ask()
 
-    if selected is None or selected == "Voltar":
+    if selected is None or selected == "back":
         return
 
-    index = (
-        int(
-            selected.split(
-                " - ",
-                1,
-            )[0]
-        )
-        - 1
-    )
-
-    candidate = candidates[index]
+    candidate = candidates[selected]
 
     if candidate.game is not None:
-        show_game_details(candidate.game)
+        show_game_details(
+            candidate.game,
+            translations=translations,
+        )
         return
 
-    show_game_candidate_details(candidate)
+    show_game_candidate_details(
+        candidate,
+        translations=translations,
+    )
 
 
 def show_sentinel_status() -> None:

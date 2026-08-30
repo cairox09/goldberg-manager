@@ -6,7 +6,6 @@ from pathlib import Path
 
 from rich import box
 from rich.console import Console
-from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -429,30 +428,48 @@ def render_game_profile(
     )
 
 
-def show_game_profile(game: Game) -> None:
+def show_game_profile(
+    game: Game,
+    *,
+    translations: Translations | None = None,
+) -> None:
     clear_screen()
     render_header()
+
+    if translations is None:
+        translations = load_translations()
+
+    def message(text: str) -> str:
+        return translations.gettext(text)
 
     try:
         profile = resolve_game_profile(game)
     except (OSError, ValueError) as error:
+        error_content = Text()
+        error_content.append(
+            message("Não foi possível resolver o perfil do jogo."),
+            style="red",
+        )
+        error_content.append("\n\n")
+        error_content.append(str(error))
         console.print(
             Panel.fit(
-                "[red]Não foi possível resolver o perfil do jogo.[/red]\n\n"
-                f"{escape(str(error))}",
+                error_content,
                 border_style="red",
                 box=box.ROUNDED,
             )
         )
-        pause()
+        pause(message("Pressione Enter para continuar..."))
         return
 
-    render_game_profile(profile)
+    render_game_profile(profile, translations=translations)
     console.print()
-    console.print(
-        "[dim]Somente leitura • nenhum arquivo ou configuração foi alterado.[/dim]"
-    )
-    pause()
+    footer = Text(style="dim")
+    footer.append(message("Somente leitura"))
+    footer.append(" • ")
+    footer.append(message("nenhum arquivo ou configuração foi alterado."))
+    console.print(footer)
+    pause(message("Pressione Enter para continuar..."))
 
 
 def show_game_details(
@@ -573,7 +590,10 @@ def show_game_details(
             return
 
         if choice == "profile":
-            show_game_profile(game)
+            show_game_profile(
+                game,
+                translations=translations,
+            )
 
         elif choice == "achievement_progress":
             show_game_achievement_status(

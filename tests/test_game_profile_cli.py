@@ -16,6 +16,14 @@ from goldberg_manager.presentation.i18n import load_translations
 from goldberg_manager.scanner import Game
 
 
+class MappingTranslations:
+    def __init__(self, messages: dict[str, str]) -> None:
+        self.messages = messages
+
+    def gettext(self, message: str) -> str:
+        return self.messages.get(message, message)
+
+
 def namespace(**values: object) -> SimpleNamespace:
     return SimpleNamespace(**values)
 
@@ -624,37 +632,18 @@ class GameProfilePresentationTests(unittest.TestCase):
 
 
 class GameProfileActionTests(unittest.TestCase):
-    def test_resolution_error_markup_is_escaped_and_pauses(self) -> None:
-        game = make_game()
-        output = StringIO()
-        test_console = Console(file=output, width=220, color_system=None)
-
-        with (
-            patch("goldberg_manager.cli.clear_screen"),
-            patch("goldberg_manager.cli.render_header"),
-            patch("goldberg_manager.cli.console", test_console),
-            patch(
-                "goldberg_manager.cli.resolve_game_profile",
-                side_effect=ValueError("invalid [/red] profile"),
-            ) as resolver,
-            patch("goldberg_manager.cli.render_game_profile") as renderer,
-            patch("goldberg_manager.cli.pause") as pause,
-        ):
-            show_game_profile(game)
-
-        resolver.assert_called_once_with(game)
-        renderer.assert_not_called()
-        pause.assert_called_once_with()
-        self.assertIn("Não foi possível resolver o perfil do jogo", output.getvalue())
-        self.assertIn("invalid [/red] profile", output.getvalue())
-
-    def test_action_resolves_exactly_once_and_renders_same_snapshot(self) -> None:
+    def test_default_action_loads_once_and_reuses_exact_objects(self) -> None:
         game = make_game()
         profile = make_profile(game=game)
+        translations = MappingTranslations({})
 
         with (
             patch("goldberg_manager.cli.clear_screen"),
             patch("goldberg_manager.cli.render_header"),
+            patch(
+                "goldberg_manager.cli.load_translations",
+                return_value=translations,
+            ) as loader,
             patch(
                 "goldberg_manager.cli.resolve_game_profile",
                 return_value=profile,
@@ -665,9 +654,193 @@ class GameProfileActionTests(unittest.TestCase):
         ):
             show_game_profile(game)
 
+        loader.assert_called_once_with()
         resolver.assert_called_once_with(game)
-        renderer.assert_called_once_with(profile)
-        pause.assert_called_once_with()
+        renderer.assert_called_once_with(profile, translations=translations)
+        self.assertIs(renderer.call_args.args[0], profile)
+        self.assertIs(renderer.call_args.kwargs["translations"], translations)
+        pause.assert_called_once_with("Pressione Enter para continuar...")
+
+    def test_explicit_translations_bypass_loader_and_translate_success_ui(self) -> None:
+        game = make_game()
+        profile = make_profile(game=game)
+        translations = load_translations("en")
+        output = StringIO()
+        test_console = Console(file=output, width=220, color_system=None)
+
+        with (
+            patch("goldberg_manager.cli.clear_screen"),
+            patch("goldberg_manager.cli.render_header"),
+            patch("goldberg_manager.cli.load_translations") as loader,
+            patch(
+                "goldberg_manager.cli.resolve_game_profile",
+                return_value=profile,
+            ) as resolver,
+            patch("goldberg_manager.cli.render_game_profile") as renderer,
+            patch("goldberg_manager.cli.pause") as pause,
+            patch("goldberg_manager.cli.console", test_console),
+        ):
+            show_game_profile(game, translations=translations)
+
+        loader.assert_not_called()
+        resolver.assert_called_once_with(game)
+        renderer.assert_called_once_with(profile, translations=translations)
+        self.assertIs(renderer.call_args.args[0], profile)
+        self.assertIs(renderer.call_args.kwargs["translations"], translations)
+        pause.assert_called_once_with("Press Enter to continue...")
+        self.assertIn(
+            "Read-only • no file or configuration was changed.",
+            output.getvalue(),
+        )
+
+    def test_handled_resolution_errors_are_literal_translated_and_pause(self) -> None:
+        game = make_game()
+        translations = MappingTranslations(
+            {
+                "Não foi possível resolver o perfil do jogo.": (
+                    "[bold]Could not resolve[/bold] the game profile."
+                ),
+                "Pressione Enter para continuar...": "[cyan]Continue[/cyan]",
+                "missing [blue]profile[/blue]": "translated dynamic error",
+                "invalid [/red] profile": "translated dynamic error",
+            }
+        )
+
+        for error in (
+            OSError("missing [blue]profile[/blue]"),
+            ValueError("invalid [/red] profile"),
+        ):
+            with self.subTest(error=type(error).__name__):
+                output = StringIO()
+                test_console = Console(file=output, width=220, color_system=None)
+
+                with (
+                    patch("goldberg_manager.cli.clear_screen"),
+                    patch("goldberg_manager.cli.render_header"),
+                    patch("goldberg_manager.cli.console", test_console),
+                    patch(
+                        "goldberg_manager.cli.resolve_game_profile",
+                        side_effect=error,
+                    ) as resolver,
+                    patch("goldberg_manager.cli.render_game_profile") as renderer,
+                    patch("goldberg_manager.cli.pause") as pause,
+                ):
+                    show_game_profile(game, translations=translations)
+
+                resolver.assert_called_once_with(game)
+                renderer.assert_not_called()
+                pause.assert_called_once_with("[cyan]Continue[/cyan]")
+                self.assertIn(
+                    "[bold]Could not resolve[/bold] the game profile.",
+                    output.getvalue(),
+                )
+                self.assertIn(str(error), output.getvalue())
+                self.assertNotIn("translated dynamic error", output.getvalue())
+
+    def test_default_handled_error_remains_portuguese(self) -> None:
+        game = make_game()
+        output = StringIO()
+        test_console = Console(file=output, width=220, color_system=None)
+
+        with (
+            patch("goldberg_manager.cli.clear_screen"),
+            patch("goldberg_manager.cli.render_header"),
+            patch("goldberg_manager.cli.console", test_console),
+            patch(
+                "goldberg_manager.cli.resolve_game_profile",
+                side_effect=ValueError("perfil inválido"),
+            ),
+            patch("goldberg_manager.cli.render_game_profile") as renderer,
+            patch("goldberg_manager.cli.pause") as pause,
+        ):
+            show_game_profile(game)
+
+        renderer.assert_not_called()
+        pause.assert_called_once_with("Pressione Enter para continuar...")
+        self.assertIn(
+            "Não foi possível resolver o perfil do jogo.",
+            output.getvalue(),
+        )
+        self.assertIn("perfil inválido", output.getvalue())
+
+    def test_rich_like_footer_translations_render_literally(self) -> None:
+        game = make_game()
+        profile = make_profile(game=game)
+        translations = MappingTranslations(
+            {
+                "Somente leitura": "[blue]Read-only[/blue]",
+                "nenhum arquivo ou configuração foi alterado.": (
+                    "[green]nothing changed[/green]."
+                ),
+                "Pressione Enter para continuar...": "Continue",
+            }
+        )
+        output = StringIO()
+        test_console = Console(file=output, width=220, color_system=None)
+
+        with (
+            patch("goldberg_manager.cli.clear_screen"),
+            patch("goldberg_manager.cli.render_header"),
+            patch(
+                "goldberg_manager.cli.resolve_game_profile",
+                return_value=profile,
+            ) as resolver,
+            patch("goldberg_manager.cli.render_game_profile") as renderer,
+            patch("goldberg_manager.cli.pause") as pause,
+            patch("goldberg_manager.cli.console", test_console),
+        ):
+            show_game_profile(game, translations=translations)
+
+        resolver.assert_called_once_with(game)
+        renderer.assert_called_once_with(profile, translations=translations)
+        pause.assert_called_once_with("Continue")
+        self.assertIn(
+            "[blue]Read-only[/blue] • [green]nothing changed[/green].",
+            output.getvalue(),
+        )
+
+    def test_unexpected_resolution_errors_still_propagate(self) -> None:
+        game = make_game()
+
+        with (
+            patch("goldberg_manager.cli.clear_screen"),
+            patch("goldberg_manager.cli.render_header"),
+            patch(
+                "goldberg_manager.cli.resolve_game_profile",
+                side_effect=RuntimeError("unexpected"),
+            ),
+            patch("goldberg_manager.cli.render_game_profile") as renderer,
+            patch("goldberg_manager.cli.pause") as pause,
+            self.assertRaisesRegex(RuntimeError, "unexpected"),
+        ):
+            show_game_profile(game)
+
+        renderer.assert_not_called()
+        pause.assert_not_called()
+
+    def test_renderer_errors_still_propagate(self) -> None:
+        game = make_game()
+        profile = make_profile(game=game)
+
+        with (
+            patch("goldberg_manager.cli.clear_screen"),
+            patch("goldberg_manager.cli.render_header"),
+            patch(
+                "goldberg_manager.cli.resolve_game_profile",
+                return_value=profile,
+            ) as resolver,
+            patch(
+                "goldberg_manager.cli.render_game_profile",
+                side_effect=RuntimeError("render failed"),
+            ) as renderer,
+            patch("goldberg_manager.cli.pause") as pause,
+            self.assertRaisesRegex(RuntimeError, "render failed"),
+        ):
+            show_game_profile(game)
+
+        resolver.assert_called_once_with(game)
+        renderer.assert_called_once()
+        pause.assert_not_called()
 
     def test_action_is_read_only_and_does_not_launch_subprocesses(self) -> None:
         writer_names = (
@@ -681,6 +854,7 @@ class GameProfileActionTests(unittest.TestCase):
             "restore_steam_settings_backup",
             "run_generate_emu_config",
             "save_config",
+            "search_game_on_steam",
             "update_game_steam_appid",
             "update_user_setting",
         )
@@ -720,7 +894,10 @@ class GameProfileActionTests(unittest.TestCase):
             writer.assert_not_called()
         run.assert_not_called()
         popen.assert_not_called()
-        self.assertIn("Somente leitura", output.getvalue())
+        self.assertIn(
+            "Somente leitura • nenhum arquivo ou configuração foi alterado.",
+            output.getvalue(),
+        )
 
 
 if __name__ == "__main__":

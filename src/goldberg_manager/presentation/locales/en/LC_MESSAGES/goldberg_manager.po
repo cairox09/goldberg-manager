@@ -695,3 +695,9 @@ msgstr "No problems detected."
 
 msgid "nenhum arquivo do Sentinel ou save foi alterado."
 msgstr "no Sentinel file or save was changed."
+
+msgid "Não foi possível resolver o perfil do jogo."
+msgstr "Could not resolve the game profile."
+
+msgid "nenhum arquivo ou configuração foi alterado."
+msgstr "no file or configuration was changed."

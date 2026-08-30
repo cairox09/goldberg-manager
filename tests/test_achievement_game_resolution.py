@@ -815,7 +815,7 @@ class AchievementGameResolutionTests(unittest.TestCase):
                 [choice.value for choice in select.call_args_list[0].kwargs["choices"]],
                 choices,
             )
-            profile.assert_called_once_with(game)
+            profile.assert_called_once_with(game, translations=ANY)
             progress.assert_called_once_with(game, translations=ANY)
             gse_status.assert_called_once_with(game, translations=ANY)
             sentinel.assert_called_once_with(game, translations=ANY)

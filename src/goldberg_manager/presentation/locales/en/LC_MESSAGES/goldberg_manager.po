@@ -49,6 +49,21 @@ msgstr "Select a game:"
 msgid "Voltar"
 msgstr "Back"
 
+msgid "Selecione o jogo cuja pasta deseja abrir:"
+msgstr "Select the game whose folder you want to open:"
+
+msgid "Nenhum diretório de jogos foi configurado."
+msgstr "No game directories have been configured."
+
+msgid "Adicione um diretório em Configurações."
+msgstr "Add a directory in Settings."
+
+msgid "Nenhum jogo compatível foi encontrado."
+msgstr "No compatible games were found."
+
+msgid "Não foi possível abrir a pasta do jogo:"
+msgstr "Could not open the game folder:"
+
 msgid "Perfil do jogo"
 msgstr "Game profile"
 

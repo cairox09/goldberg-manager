@@ -791,3 +791,42 @@ msgstr "Present"
 
 msgid "Configuração atual"
 msgstr "Current configuration"
+
+msgid "Backups de steam_settings"
+msgstr "steam_settings backups"
+
+msgid "Criar backup agora"
+msgstr "Create backup now"
+
+msgid "Ver backups"
+msgstr "View backups"
+
+msgid "Selecione o jogo para listar os backups:"
+msgstr "Select the game to list backups:"
+
+msgid "Não foi possível listar os backups"
+msgstr "Could not list backups"
+
+msgid "Nenhum backup de steam_settings foi encontrado para este jogo."
+msgstr "No steam_settings backups were found for this game."
+
+msgid "Backups de"
+msgstr "Backups for"
+
+msgid "Data"
+msgstr "Date"
+
+msgid "Arquivos"
+msgstr "Files"
+
+msgid "Integridade"
+msgstr "Integrity"
+
+msgid "Íntegro"
+msgstr "Valid"
+
+msgid "CORROMPIDO"
+msgstr "CORRUPTED"
+
+msgid "Diretório"
+msgstr "Directory"

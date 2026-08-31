@@ -3113,14 +3113,23 @@ def generate_steam_interfaces_menu(
 def show_current_steam_settings_menu(
     config: AppConfig,
     game: Game | None = None,
+    *,
+    translations: Translations | None = None,
 ) -> None:
     clear_screen()
     render_header()
 
+    if translations is None:
+        translations = load_translations()
+
+    def message(text: str) -> str:
+        return translations.gettext(text)
+
     game = get_menu_game(
         config,
         game,
-        "Selecione o jogo para visualizar steam_settings:",
+        "Selecione o jogo para visualizar steam_settings",
+        translations=translations,
     )
 
     if game is None:
@@ -3129,8 +3138,12 @@ def show_current_steam_settings_menu(
     try:
         snapshot = read_game_steam_settings(game)
     except (OSError, ValueError) as exc:
-        console.print(f"[red]Erro ao ler steam_settings:[/red] {exc}")
-        pause()
+        error_message = Text()
+        error_message.append(message("Erro ao ler steam_settings"), style="red")
+        error_message.append(": ")
+        error_message.append(str(exc))
+        console.print(error_message)
+        pause(message("Pressione Enter para continuar..."))
         return
 
     steam_settings_directory = game.steam_api.parent / "steam_settings"
@@ -3148,14 +3161,18 @@ def show_current_steam_settings_menu(
     ):
         console.print(
             Panel.fit(
-                "[yellow]Nenhuma configuração "
-                "steam_settings foi encontrada "
-                "para este jogo.[/yellow]",
+                Text(
+                    message(
+                        "Nenhuma configuração steam_settings foi encontrada "
+                        "para este jogo."
+                    ),
+                    style="yellow",
+                ),
                 border_style="yellow",
                 box=box.ROUNDED,
             )
         )
-        pause()
+        pause(message("Pressione Enter para continuar..."))
         return
 
     table = Table.grid(padding=(0, 2))
@@ -3166,79 +3183,101 @@ def show_current_steam_settings_menu(
     table.add_column(style="white")
 
     table.add_row(
-        "Jogo",
-        game.name,
+        Text(message("Jogo")),
+        Text(str(game.name)),
+    )
+
+    not_set = Text.assemble("(", Text(message("não definido")), ")")
+
+    table.add_row(
+        Text("AppID"),
+        Text(str(snapshot.app_id)) if snapshot.app_id is not None else not_set,
     )
 
     table.add_row(
-        "AppID",
-        str(snapshot.app_id) if snapshot.app_id is not None else "(não definido)",
+        Text(message("Nick")),
+        Text(snapshot.account_name) if snapshot.account_name else not_set,
+    )
+
+    automatic_steam_id = Text.assemble(
+        "(",
+        Text(message("não definido")),
+        " / ",
+        Text(message("automático")),
+        ")",
     )
 
     table.add_row(
-        "Nick",
-        snapshot.account_name or "(não definido)",
+        Text("SteamID64"),
+        (
+            Text(str(snapshot.account_steamid))
+            if snapshot.account_steamid is not None
+            else automatic_steam_id
+        ),
     )
 
     table.add_row(
-        "SteamID64",
-        str(snapshot.account_steamid)
-        if snapshot.account_steamid is not None
-        else "(não definido / automático)",
+        Text(message("Idioma")),
+        Text(snapshot.language) if snapshot.language else not_set,
     )
 
     table.add_row(
-        "Idioma",
-        snapshot.language or "(não definido)",
-    )
-
-    table.add_row(
-        "País",
-        snapshot.ip_country or "(não definido)",
+        Text(message("País")),
+        Text(snapshot.ip_country) if snapshot.ip_country else not_set,
     )
 
     if snapshot.local_save_path:
-        save_status = f"Local/portátil: {snapshot.local_save_path}"
+        save_status = Text()
+        save_status.append(message("Local/portátil"))
+        save_status.append(": ")
+        save_status.append(snapshot.local_save_path)
 
     elif snapshot.saves_folder_name:
-        save_status = f"Pasta global: {snapshot.saves_folder_name}"
+        save_status = Text()
+        save_status.append(message("Pasta global"))
+        save_status.append(": ")
+        save_status.append(snapshot.saves_folder_name)
 
     else:
-        save_status = "Padrão / não definido"
+        save_status = Text.assemble(
+            Text(message("Padrão")),
+            " / ",
+            Text(message("não definido")),
+        )
 
     table.add_row(
-        "Saves",
+        Text(message("Saves")),
         save_status,
     )
 
     table.add_row(
-        "steam_appid.txt",
-        "Presente" if app_id_file.is_file() else "Ausente",
+        Text("steam_appid.txt"),
+        Text(message("Presente" if app_id_file.is_file() else "Ausente")),
     )
 
     table.add_row(
-        "configs.user.ini",
-        "Presente" if user_config_file.is_file() else "Ausente",
+        Text("configs.user.ini"),
+        Text(message("Presente" if user_config_file.is_file() else "Ausente")),
     )
 
     table.add_row(
-        "steam_interfaces.txt",
-        "Presente" if snapshot.has_steam_interfaces else "Ausente",
+        Text("steam_interfaces.txt"),
+        Text(message("Presente" if snapshot.has_steam_interfaces else "Ausente")),
     )
 
     console.print(
         Panel(
             table,
-            title="Configuração atual",
+            title=Text(message("Configuração atual")),
             border_style="green",
             box=box.ROUNDED,
         )
     )
 
     console.print()
-    console.print(f"[dim]{steam_settings_directory}[/dim]")
+    console.print(Text(str(steam_settings_directory), style="dim"))
 
-    pause()
+    pause(message("Pressione Enter para continuar..."))
 
 
 def create_settings_safety_backup(
@@ -4045,44 +4084,65 @@ def manage_steam_settings_backups_menu(
 def manage_steam_settings_menu(
     config: AppConfig,
     game: Game | None = None,
+    *,
+    translations: Translations | None = None,
 ) -> None:
+    if translations is None:
+        translations = load_translations()
+
     while True:
         clear_screen()
         render_header()
 
         choice = questionary.select(
-            "Gerenciar steam_settings:",
+            f"{translations.gettext('Gerenciar steam_settings')}:",
             choices=[
-                "Ver configuração atual",
-                "Editar configuração",
-                "Criar / substituir configuração",
-                "Backups de configuração",
-                "Voltar",
+                questionary.Choice(
+                    title=translations.gettext("Ver configuração atual"),
+                    value="current",
+                ),
+                questionary.Choice(
+                    title=translations.gettext("Editar configuração"),
+                    value="edit",
+                ),
+                questionary.Choice(
+                    title=translations.gettext("Criar / substituir configuração"),
+                    value="generate",
+                ),
+                questionary.Choice(
+                    title=translations.gettext("Backups de configuração"),
+                    value="backups",
+                ),
+                questionary.Choice(
+                    title=translations.gettext("Voltar"),
+                    value="back",
+                ),
             ],
         ).ask()
 
-        if choice is None or choice == "Voltar":
+        if choice is None or choice == "back":
             return
 
-        if choice == "Ver configuração atual":
+        if choice == "current":
             show_current_steam_settings_menu(
                 config,
                 game=game,
+                translations=translations,
             )
 
-        elif choice == "Editar configuração":
+        elif choice == "edit":
             edit_steam_settings_menu(
                 config,
                 game=game,
             )
 
-        elif choice == "Criar / substituir configuração":
+        elif choice == "generate":
             generate_steam_settings_menu(
                 config,
                 game=game,
             )
 
-        elif choice == "Backups de configuração":
+        elif choice == "backups":
             manage_steam_settings_backups_menu(
                 config,
                 game=game,

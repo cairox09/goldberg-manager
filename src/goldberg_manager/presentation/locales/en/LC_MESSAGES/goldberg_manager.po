@@ -743,3 +743,51 @@ msgstr "The executable was detected, but no Steam API was found."
 
 msgid "As funções que dependem da Steam API não estão disponíveis para este jogo."
 msgstr "Features that depend on the Steam API are not available for this game."
+
+msgid "Ver configuração atual"
+msgstr "View current configuration"
+
+msgid "Editar configuração"
+msgstr "Edit configuration"
+
+msgid "Criar / substituir configuração"
+msgstr "Create / replace configuration"
+
+msgid "Backups de configuração"
+msgstr "Configuration backups"
+
+msgid "Selecione o jogo para visualizar steam_settings"
+msgstr "Select the game to view steam_settings"
+
+msgid "Erro ao ler steam_settings"
+msgstr "Error reading steam_settings"
+
+msgid "Nenhuma configuração steam_settings foi encontrada para este jogo."
+msgstr "No steam_settings configuration was found for this game."
+
+msgid "Nick"
+msgstr "Nickname"
+
+msgid "Saves"
+msgstr "Saves"
+
+msgid "não definido"
+msgstr "not set"
+
+msgid "automático"
+msgstr "automatic"
+
+msgid "Local/portátil"
+msgstr "Local/portable"
+
+msgid "Pasta global"
+msgstr "Global folder"
+
+msgid "Padrão"
+msgstr "Default"
+
+msgid "Presente"
+msgstr "Present"
+
+msgid "Configuração atual"
+msgstr "Current configuration"

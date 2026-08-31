@@ -363,16 +363,29 @@ def remove_game_directory(config: AppConfig) -> None:
         pause()
 
 
-def create_game_backup(game) -> None:
+def create_game_backup(
+    game,
+    *,
+    translations: Translations | None = None,
+) -> None:
+    if translations is None:
+        translations = load_translations()
+
+    def message(text: str) -> str:
+        return translations.gettext(text)
+
     if has_backup(game):
         console.print(
-            "[yellow]Já existe um backup da Steam API para este jogo.[/yellow]"
+            Text(
+                message("Já existe um backup da Steam API para este jogo."),
+                style="yellow",
+            )
         )
-        pause()
+        pause(message("Pressione Enter para continuar..."))
         return
 
     confirm = questionary.confirm(
-        "Deseja criar um backup da Steam API original?",
+        message("Deseja criar um backup da Steam API original?"),
         default=True,
     ).ask()
 
@@ -382,13 +395,17 @@ def create_game_backup(game) -> None:
     try:
         backup_path = backup_game(game)
     except (OSError, FileExistsError) as exc:
-        console.print(f"[red]Erro ao criar backup:[/red] {exc}")
-        pause()
+        error_message = Text()
+        error_message.append(message("Erro ao criar backup"), style="red")
+        error_message.append(": ")
+        error_message.append(str(exc))
+        console.print(error_message)
+        pause(message("Pressione Enter para continuar..."))
         return
 
-    console.print("[green]Backup criado com sucesso.[/green]")
-    console.print(f"[dim]{backup_path}[/dim]")
-    pause()
+    console.print(Text(message("Backup criado com sucesso."), style="green"))
+    console.print(Text(str(backup_path), style="dim"))
+    pause(message("Pressione Enter para continuar..."))
 
 
 def restore_game_api(game) -> None:
@@ -623,7 +640,10 @@ def show_game_details(
             repair_game_sentinel_integration(game)
 
         elif choice == "steam_api_backup":
-            create_game_backup(game)
+            create_game_backup(
+                game,
+                translations=translations,
+            )
 
         elif choice == "steam_api_restore":
             restore_game_api(game)
@@ -4769,11 +4789,21 @@ def generate_steam_settings_menu(
     pause()
 
 
-def backup_game_menu(config: AppConfig) -> None:
+def backup_game_menu(
+    config: AppConfig,
+    *,
+    translations: Translations | None = None,
+) -> None:
     clear_screen()
     render_header()
 
-    games = get_detected_games(config)
+    if translations is None:
+        translations = load_translations()
+
+    games = get_detected_games(
+        config,
+        translations=translations,
+    )
 
     if games is None:
         return
@@ -4781,12 +4811,16 @@ def backup_game_menu(config: AppConfig) -> None:
     game = select_game(
         games,
         "Selecione o jogo para criar o backup:",
+        translations=translations,
     )
 
     if game is None:
         return
 
-    create_game_backup(game)
+    create_game_backup(
+        game,
+        translations=translations,
+    )
 
 
 def restore_game_menu(config: AppConfig) -> None:

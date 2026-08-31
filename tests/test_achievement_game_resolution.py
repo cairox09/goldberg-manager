@@ -821,7 +821,7 @@ class AchievementGameResolutionTests(unittest.TestCase):
             sentinel.assert_called_once_with(game, translations=ANY)
             integration.assert_called_once_with(game, translations=ANY)
             repair_integration.assert_called_once_with(game)
-            backup.assert_called_once_with(game)
+            backup.assert_called_once_with(game, translations=ANY)
             restore.assert_called_once_with(game)
 
 

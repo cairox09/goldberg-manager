@@ -3808,14 +3808,23 @@ def edit_steam_settings_menu(
 def create_steam_settings_backup_menu(
     config: AppConfig,
     game: Game | None = None,
+    *,
+    translations: Translations | None = None,
 ) -> None:
     clear_screen()
     render_header()
+
+    if translations is None:
+        translations = load_translations()
+
+    def message(text: str) -> str:
+        return translations.gettext(text)
 
     game = get_menu_game(
         config,
         game,
         "Selecione o jogo para criar o backup de steam_settings:",
+        translations=translations,
     )
 
     if game is None:
@@ -3828,14 +3837,26 @@ def create_steam_settings_backup_menu(
         OSError,
         ValueError,
     ) as exc:
-        console.print(f"[red]Não foi possível criar o backup:[/red] {exc}")
-        pause()
+        error_message = Text()
+        error_message.append(
+            message("Não foi possível criar o backup"),
+            style="red",
+        )
+        error_message.append(": ")
+        error_message.append(str(exc))
+        console.print(error_message)
+        pause(message("Pressione Enter para continuar..."))
         return
 
-    console.print("[green]Backup de steam_settings criado com sucesso![/green]")
-    console.print(f"[dim]{snapshot_path}[/dim]")
+    console.print(
+        Text(
+            message("Backup de steam_settings criado com sucesso!"),
+            style="green",
+        )
+    )
+    console.print(Text(str(snapshot_path), style="dim"))
 
-    pause()
+    pause(message("Pressione Enter para continuar..."))
 
 
 def list_steam_settings_backups_menu(
@@ -4134,6 +4155,7 @@ def manage_steam_settings_backups_menu(
             create_steam_settings_backup_menu(
                 config,
                 game=game,
+                translations=translations,
             )
 
         elif choice == "list":

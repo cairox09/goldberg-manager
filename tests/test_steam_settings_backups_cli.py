@@ -11,8 +11,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from rich.console import Console
+from rich.text import Text
 
 from goldberg_manager.cli import (
+    create_steam_settings_backup_menu,
+    get_menu_game,
     list_steam_settings_backups_menu,
     manage_steam_settings_backups_menu,
     manage_steam_settings_menu,
@@ -56,6 +59,19 @@ SUBMENU_ACTIONS = (
     "create_steam_settings_backup_menu",
     "list_steam_settings_backups_menu",
     "restore_steam_settings_backup_menu",
+)
+UNRELATED_MUTATIONS = (
+    "apply_game_sentinel_repair",
+    "backup_game",
+    "generate_game_steam_interfaces",
+    "import_generated_achievements",
+    "restore_game_backup",
+    "restore_steam_settings_backup",
+    "run_generate_emu_config",
+    "save_appid_search_cache",
+    "save_config",
+    "update_game_steam_appid",
+    "update_user_setting",
 )
 
 
@@ -111,40 +127,63 @@ class SteamSettingsBackupsRoutingTests(unittest.TestCase):
         )
         self.assertEqual([choice.value for choice in choices], SUBMENU_VALUES)
 
-    def test_create_and_restore_preserve_exact_mutation_calls(self) -> None:
+    def test_create_dispatch_forwards_exact_translation_identity(self) -> None:
         config = AppConfig()
         game = make_game()
-        cases = (
-            ("create", "create_steam_settings_backup_menu"),
-            ("restore", "restore_steam_settings_backup_menu"),
+        translations = MappingTranslations()
+
+        with (
+            patch("goldberg_manager.cli.questionary.select") as select,
+            patch("goldberg_manager.cli.create_steam_settings_backup_menu") as create,
+            patch("goldberg_manager.cli.list_steam_settings_backups_menu") as list_menu,
+            patch("goldberg_manager.cli.restore_steam_settings_backup_menu") as restore,
+            patch("goldberg_manager.cli.clear_screen"),
+            patch("goldberg_manager.cli.render_header"),
+        ):
+            select.return_value.ask.side_effect = ["create", "back"]
+            manage_steam_settings_backups_menu(
+                config,
+                game,
+                translations=translations,
+            )
+
+        create.assert_called_once_with(
+            config,
+            game=game,
+            translations=translations,
         )
+        self.assertIs(create.call_args.args[0], config)
+        self.assertIs(create.call_args.kwargs["game"], game)
+        self.assertIs(create.call_args.kwargs["translations"], translations)
+        list_menu.assert_not_called()
+        restore.assert_not_called()
 
-        for value, expected_action in cases:
-            with self.subTest(value=value), ExitStack() as stack:
-                select = stack.enter_context(
-                    patch("goldberg_manager.cli.questionary.select")
-                )
-                actions = {
-                    action: stack.enter_context(patch(f"goldberg_manager.cli.{action}"))
-                    for action in SUBMENU_ACTIONS
-                }
-                stack.enter_context(patch("goldberg_manager.cli.clear_screen"))
-                stack.enter_context(patch("goldberg_manager.cli.render_header"))
-                select.return_value.ask.side_effect = [value, "back"]
+    def test_restore_dispatch_preserves_existing_call_contract(self) -> None:
+        config = AppConfig()
+        game = make_game()
+        translations = MappingTranslations()
 
-                manage_steam_settings_backups_menu(
-                    config,
-                    game,
-                    translations=MappingTranslations(),
-                )
+        with (
+            patch("goldberg_manager.cli.questionary.select") as select,
+            patch("goldberg_manager.cli.create_steam_settings_backup_menu") as create,
+            patch("goldberg_manager.cli.list_steam_settings_backups_menu") as list_menu,
+            patch("goldberg_manager.cli.restore_steam_settings_backup_menu") as restore,
+            patch("goldberg_manager.cli.clear_screen"),
+            patch("goldberg_manager.cli.render_header"),
+        ):
+            select.return_value.ask.side_effect = ["restore", "back"]
+            manage_steam_settings_backups_menu(
+                config,
+                game,
+                translations=translations,
+            )
 
-            actions[expected_action].assert_called_once_with(config, game=game)
-            self.assertIs(actions[expected_action].call_args.args[0], config)
-            self.assertIs(actions[expected_action].call_args.kwargs["game"], game)
-            self.assertEqual(actions[expected_action].call_args.kwargs, {"game": game})
-            for action_name, action in actions.items():
-                if action_name != expected_action:
-                    action.assert_not_called()
+        restore.assert_called_once_with(config, game=game)
+        self.assertIs(restore.call_args.args[0], config)
+        self.assertIs(restore.call_args.kwargs["game"], game)
+        self.assertEqual(restore.call_args.kwargs, {"game": game})
+        create.assert_not_called()
+        list_menu.assert_not_called()
 
     def test_list_dispatch_forwards_exact_translation_identity(self) -> None:
         config = AppConfig()
@@ -244,7 +283,7 @@ class SteamSettingsBackupsRoutingTests(unittest.TestCase):
             patch("goldberg_manager.cli.clear_screen"),
             patch("goldberg_manager.cli.render_header"),
         ):
-            select.return_value.ask.side_effect = ["restore", "back"]
+            select.return_value.ask.side_effect = ["create", "back"]
             config = AppConfig()
             game = make_game()
             manage_steam_settings_backups_menu(
@@ -262,9 +301,13 @@ class SteamSettingsBackupsRoutingTests(unittest.TestCase):
             [choice.value for choice in first_call.kwargs["choices"]],
             SUBMENU_VALUES,
         )
-        restore.assert_called_once_with(config, game=game)
-        create.assert_not_called()
+        create.assert_called_once_with(
+            config,
+            game=game,
+            translations=translations,
+        )
         list_menu.assert_not_called()
+        restore.assert_not_called()
 
     def test_default_submenu_to_real_list_loads_once_and_preserves_identity(
         self,
@@ -331,6 +374,559 @@ class SteamSettingsBackupsRoutingTests(unittest.TestCase):
         self.assertIs(get_game.call_args.kwargs["translations"], translations)
         list_backups.assert_not_called()
         pause.assert_not_called()
+
+
+class SteamSettingsBackupCreationRoutingTests(unittest.TestCase):
+    def test_default_submenu_to_real_creation_loads_once_and_preserves_identity(
+        self,
+    ) -> None:
+        config = AppConfig()
+        game = make_game()
+        snapshot_path = Path("/backups/Example/steam_settings/snapshot")
+        translations = MappingTranslations()
+
+        with (
+            patch(
+                "goldberg_manager.cli.load_translations",
+                return_value=translations,
+            ) as load_catalog,
+            patch("goldberg_manager.cli.questionary.select") as select,
+            patch(
+                "goldberg_manager.cli.get_menu_game",
+                wraps=get_menu_game,
+            ) as get_game,
+            patch(
+                "goldberg_manager.cli.create_steam_settings_backup",
+                return_value=snapshot_path,
+            ) as writer,
+            patch("goldberg_manager.cli.questionary.confirm") as confirm,
+            patch("goldberg_manager.cli.console.print"),
+            patch("goldberg_manager.cli.pause") as pause,
+            patch("goldberg_manager.cli.clear_screen"),
+            patch("goldberg_manager.cli.render_header"),
+        ):
+            select.return_value.ask.side_effect = ["create", "back"]
+            manage_steam_settings_backups_menu(config, game)
+
+        load_catalog.assert_called_once_with()
+        get_game.assert_called_once_with(
+            config,
+            game,
+            "Selecione o jogo para criar o backup de steam_settings:",
+            translations=translations,
+        )
+        self.assertIs(get_game.call_args.kwargs["translations"], translations)
+        writer.assert_called_once_with(game)
+        self.assertIs(writer.call_args.args[0], game)
+        self.assertEqual(writer.call_args.kwargs, {})
+        confirm.assert_not_called()
+        pause.assert_called_once_with("Pressione Enter para continuar...")
+
+    def test_explicit_submenu_translations_reach_real_creation_without_reload(
+        self,
+    ) -> None:
+        config = AppConfig()
+        game = make_game()
+        translations = MappingTranslations()
+
+        with (
+            patch("goldberg_manager.cli.load_translations") as load_catalog,
+            patch("goldberg_manager.cli.questionary.select") as select,
+            patch(
+                "goldberg_manager.cli.get_menu_game",
+                return_value=None,
+            ) as get_game,
+            patch("goldberg_manager.cli.create_steam_settings_backup") as writer,
+            patch("goldberg_manager.cli.questionary.confirm") as confirm,
+            patch("goldberg_manager.cli.console.print") as console_print,
+            patch("goldberg_manager.cli.pause") as pause,
+            patch("goldberg_manager.cli.clear_screen"),
+            patch("goldberg_manager.cli.render_header"),
+        ):
+            select.return_value.ask.side_effect = ["create", "back"]
+            manage_steam_settings_backups_menu(
+                config,
+                game,
+                translations=translations,
+            )
+
+        load_catalog.assert_not_called()
+        get_game.assert_called_once_with(
+            config,
+            game,
+            "Selecione o jogo para criar o backup de steam_settings:",
+            translations=translations,
+        )
+        self.assertIs(get_game.call_args.kwargs["translations"], translations)
+        writer.assert_not_called()
+        confirm.assert_not_called()
+        console_print.assert_not_called()
+        pause.assert_not_called()
+
+    def test_default_steam_settings_parent_to_real_creation_loads_once(self) -> None:
+        config = AppConfig()
+        game = make_game()
+        translations = MappingTranslations()
+
+        with (
+            patch(
+                "goldberg_manager.cli.load_translations",
+                return_value=translations,
+            ) as load_catalog,
+            patch("goldberg_manager.cli.questionary.select") as select,
+            patch(
+                "goldberg_manager.cli.get_menu_game",
+                return_value=None,
+            ) as get_game,
+            patch("goldberg_manager.cli.create_steam_settings_backup") as writer,
+            patch("goldberg_manager.cli.pause") as pause,
+            patch("goldberg_manager.cli.clear_screen"),
+            patch("goldberg_manager.cli.render_header"),
+        ):
+            select.return_value.ask.side_effect = ["backups", "create", "back", "back"]
+            manage_steam_settings_menu(config, game)
+
+        load_catalog.assert_called_once_with()
+        get_game.assert_called_once_with(
+            config,
+            game,
+            "Selecione o jogo para criar o backup de steam_settings:",
+            translations=translations,
+        )
+        self.assertIs(get_game.call_args.kwargs["translations"], translations)
+        writer.assert_not_called()
+        pause.assert_not_called()
+
+
+class SteamSettingsBackupCreationTests(unittest.TestCase):
+    def test_direct_default_loads_once_and_preserves_portuguese_success_sequence(
+        self,
+    ) -> None:
+        config = AppConfig()
+        game = make_game()
+        snapshot_path = Path("/backups/Example/steam_settings/snapshot")
+        translations = MappingTranslations()
+        events: list[tuple[str, object]] = []
+
+        def record_writer(supplied_game):
+            events.append(("create_steam_settings_backup", supplied_game))
+            return snapshot_path
+
+        def record_print(value):
+            self.assertIsInstance(value, Text)
+            events.append(("print", value.plain))
+
+        with ExitStack() as stack:
+            load_catalog = stack.enter_context(
+                patch(
+                    "goldberg_manager.cli.load_translations",
+                    return_value=translations,
+                )
+            )
+            get_games = stack.enter_context(
+                patch(
+                    "goldberg_manager.cli.get_detected_games",
+                    return_value=[game],
+                )
+            )
+            select = stack.enter_context(
+                patch("goldberg_manager.cli.questionary.select")
+            )
+            select.return_value.ask.return_value = 0
+            get_game = stack.enter_context(
+                patch(
+                    "goldberg_manager.cli.get_menu_game",
+                    wraps=get_menu_game,
+                )
+            )
+            writer = stack.enter_context(
+                patch(
+                    "goldberg_manager.cli.create_steam_settings_backup",
+                    side_effect=record_writer,
+                )
+            )
+            console_print = stack.enter_context(
+                patch(
+                    "goldberg_manager.cli.console.print",
+                    side_effect=record_print,
+                )
+            )
+            pause = stack.enter_context(
+                patch(
+                    "goldberg_manager.cli.pause",
+                    side_effect=lambda message: events.append(("pause", message)),
+                )
+            )
+            confirm = stack.enter_context(
+                patch("goldberg_manager.cli.questionary.confirm")
+            )
+            stack.enter_context(patch("goldberg_manager.cli.clear_screen"))
+            stack.enter_context(patch("goldberg_manager.cli.render_header"))
+            unrelated = [
+                stack.enter_context(patch(f"goldberg_manager.cli.{name}"))
+                for name in UNRELATED_MUTATIONS
+            ]
+
+            create_steam_settings_backup_menu(config)
+
+        load_catalog.assert_called_once_with()
+        get_game.assert_called_once_with(
+            config,
+            None,
+            "Selecione o jogo para criar o backup de steam_settings:",
+            translations=translations,
+        )
+        self.assertIs(get_game.call_args.kwargs["translations"], translations)
+        get_games.assert_called_once_with(
+            config,
+            translations=translations,
+        )
+        self.assertEqual(
+            select.call_args.args[0],
+            "Selecione o jogo para criar o backup de steam_settings:",
+        )
+        self.assertEqual(
+            [choice.value for choice in select.call_args.kwargs["choices"]],
+            [0, "back"],
+        )
+        writer.assert_called_once_with(game)
+        self.assertIs(writer.call_args.args[0], game)
+        self.assertEqual(writer.call_args.kwargs, {})
+        self.assertEqual(console_print.call_count, 2)
+        confirm.assert_not_called()
+        pause.assert_called_once_with("Pressione Enter para continuar...")
+        for mutation in unrelated:
+            mutation.assert_not_called()
+        self.assertEqual(
+            events,
+            [
+                ("create_steam_settings_backup", game),
+                ("print", "Backup de steam_settings criado com sucesso!"),
+                ("print", str(snapshot_path)),
+                ("pause", "Pressione Enter para continuar..."),
+            ],
+        )
+
+    def test_explicit_english_translates_selection_success_and_pause(self) -> None:
+        config = AppConfig()
+        game = make_game(name="Technical Game")
+        snapshot_path = Path("/backups/Technical Game/steam_settings/snapshot")
+        translations = load_translations("en")
+        output = StringIO()
+        test_console = Console(file=output, width=240, color_system=None)
+
+        with (
+            patch("goldberg_manager.cli.load_translations") as load_catalog,
+            patch(
+                "goldberg_manager.cli.get_detected_games",
+                return_value=[game],
+            ),
+            patch("goldberg_manager.cli.questionary.select") as select,
+            patch(
+                "goldberg_manager.cli.create_steam_settings_backup",
+                return_value=snapshot_path,
+            ) as writer,
+            patch("goldberg_manager.cli.questionary.confirm") as confirm,
+            patch("goldberg_manager.cli.console", test_console),
+            patch("goldberg_manager.cli.pause") as pause,
+            patch("goldberg_manager.cli.clear_screen"),
+            patch("goldberg_manager.cli.render_header"),
+        ):
+            select.return_value.ask.return_value = 0
+            create_steam_settings_backup_menu(
+                config,
+                translations=translations,
+            )
+
+        load_catalog.assert_not_called()
+        self.assertEqual(
+            select.call_args.args[0],
+            "Select the game to create the steam_settings backup:",
+        )
+        choices = select.call_args.kwargs["choices"]
+        self.assertEqual([choice.value for choice in choices], [0, "back"])
+        self.assertIn("Technical Game", choices[0].title)
+        self.assertEqual(choices[-1].title, "Back")
+        writer.assert_called_once_with(game)
+        self.assertIs(writer.call_args.args[0], game)
+        self.assertEqual(writer.call_args.kwargs, {})
+        confirm.assert_not_called()
+        rendered = output.getvalue()
+        self.assertIn("steam_settings backup created successfully!", rendered)
+        self.assertIn(str(snapshot_path), rendered)
+        pause.assert_called_once_with("Press Enter to continue...")
+
+    def test_explicit_translations_bypass_loader_and_reach_game_resolution(
+        self,
+    ) -> None:
+        config = AppConfig()
+        translations = MappingTranslations()
+
+        with (
+            patch("goldberg_manager.cli.load_translations") as load_catalog,
+            patch(
+                "goldberg_manager.cli.get_menu_game",
+                return_value=None,
+            ) as get_game,
+            patch("goldberg_manager.cli.create_steam_settings_backup") as writer,
+            patch("goldberg_manager.cli.questionary.confirm") as confirm,
+            patch("goldberg_manager.cli.console.print") as console_print,
+            patch("goldberg_manager.cli.pause") as pause,
+            patch("goldberg_manager.cli.clear_screen"),
+            patch("goldberg_manager.cli.render_header"),
+        ):
+            create_steam_settings_backup_menu(
+                config,
+                translations=translations,
+            )
+
+        load_catalog.assert_not_called()
+        get_game.assert_called_once_with(
+            config,
+            None,
+            "Selecione o jogo para criar o backup de steam_settings:",
+            translations=translations,
+        )
+        self.assertIs(get_game.call_args.kwargs["translations"], translations)
+        writer.assert_not_called()
+        confirm.assert_not_called()
+        console_print.assert_not_called()
+        pause.assert_not_called()
+
+    def test_supplied_game_bypasses_detection_and_preserves_writer_identity(
+        self,
+    ) -> None:
+        config = AppConfig()
+        game = make_game()
+        translations = MappingTranslations()
+
+        with (
+            patch("goldberg_manager.cli.get_detected_games") as get_games,
+            patch("goldberg_manager.cli.select_game") as select_game,
+            patch(
+                "goldberg_manager.cli.create_steam_settings_backup",
+                return_value=Path("/backups/snapshot"),
+            ) as writer,
+            patch("goldberg_manager.cli.questionary.confirm") as confirm,
+            patch("goldberg_manager.cli.console.print"),
+            patch("goldberg_manager.cli.pause"),
+            patch("goldberg_manager.cli.clear_screen"),
+            patch("goldberg_manager.cli.render_header"),
+        ):
+            create_steam_settings_backup_menu(
+                config,
+                game,
+                translations=translations,
+            )
+
+        get_games.assert_not_called()
+        select_game.assert_not_called()
+        writer.assert_called_once_with(game)
+        self.assertIs(writer.call_args.args[0], game)
+        self.assertEqual(writer.call_args.kwargs, {})
+        confirm.assert_not_called()
+
+    def test_selection_cancellation_returns_without_mutation_output_or_pause(
+        self,
+    ) -> None:
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch("goldberg_manager.cli.get_menu_game", return_value=None)
+            )
+            writer = stack.enter_context(
+                patch("goldberg_manager.cli.create_steam_settings_backup")
+            )
+            confirm = stack.enter_context(
+                patch("goldberg_manager.cli.questionary.confirm")
+            )
+            console_print = stack.enter_context(
+                patch("goldberg_manager.cli.console.print")
+            )
+            pause = stack.enter_context(patch("goldberg_manager.cli.pause"))
+            stack.enter_context(patch("goldberg_manager.cli.clear_screen"))
+            stack.enter_context(patch("goldberg_manager.cli.render_header"))
+            unrelated = [
+                stack.enter_context(patch(f"goldberg_manager.cli.{name}"))
+                for name in UNRELATED_MUTATIONS
+            ]
+
+            create_steam_settings_backup_menu(
+                AppConfig(),
+                translations=MappingTranslations(),
+            )
+
+        writer.assert_not_called()
+        confirm.assert_not_called()
+        console_print.assert_not_called()
+        pause.assert_not_called()
+        for mutation in unrelated:
+            mutation.assert_not_called()
+
+    def test_each_handled_writer_error_preserves_portuguese_and_pauses_once(
+        self,
+    ) -> None:
+        errors = (
+            FileNotFoundError("missing settings"),
+            OSError("filesystem failure"),
+            ValueError("invalid settings"),
+        )
+
+        for error in errors:
+            with self.subTest(error=type(error).__name__):
+                output = StringIO()
+                test_console = Console(file=output, width=200, color_system=None)
+
+                with (
+                    patch(
+                        "goldberg_manager.cli.get_menu_game", return_value=make_game()
+                    ),
+                    patch(
+                        "goldberg_manager.cli.create_steam_settings_backup",
+                        side_effect=error,
+                    ) as writer,
+                    patch("goldberg_manager.cli.questionary.confirm") as confirm,
+                    patch("goldberg_manager.cli.console", test_console),
+                    patch("goldberg_manager.cli.pause") as pause,
+                    patch("goldberg_manager.cli.clear_screen"),
+                    patch("goldberg_manager.cli.render_header"),
+                ):
+                    create_steam_settings_backup_menu(
+                        AppConfig(),
+                        translations=MappingTranslations(),
+                    )
+
+                writer.assert_called_once()
+                confirm.assert_not_called()
+                self.assertEqual(
+                    output.getvalue().strip(),
+                    f"Não foi possível criar o backup: {error}",
+                )
+                self.assertNotIn(
+                    "Backup de steam_settings criado com sucesso!",
+                    output.getvalue(),
+                )
+                pause.assert_called_once_with("Pressione Enter para continuar...")
+
+    def test_explicit_english_translates_handled_error_and_pause(self) -> None:
+        error = OSError("technical failure")
+        output = StringIO()
+        test_console = Console(file=output, width=200, color_system=None)
+
+        with (
+            patch("goldberg_manager.cli.get_menu_game", return_value=make_game()),
+            patch(
+                "goldberg_manager.cli.create_steam_settings_backup",
+                side_effect=error,
+            ),
+            patch("goldberg_manager.cli.console", test_console),
+            patch("goldberg_manager.cli.pause") as pause,
+            patch("goldberg_manager.cli.clear_screen"),
+            patch("goldberg_manager.cli.render_header"),
+        ):
+            create_steam_settings_backup_menu(
+                AppConfig(),
+                translations=load_translations("en"),
+            )
+
+        self.assertEqual(
+            output.getvalue().strip(),
+            "Could not create the backup: technical failure",
+        )
+        pause.assert_called_once_with("Press Enter to continue...")
+
+    def test_unexpected_writer_error_propagates_without_success_or_pause(self) -> None:
+        game = make_game()
+        error = RuntimeError("unexpected writer failure")
+
+        with (
+            patch("goldberg_manager.cli.get_menu_game", return_value=game),
+            patch(
+                "goldberg_manager.cli.create_steam_settings_backup",
+                side_effect=error,
+            ) as writer,
+            patch("goldberg_manager.cli.console.print") as console_print,
+            patch("goldberg_manager.cli.pause") as pause,
+            patch("goldberg_manager.cli.clear_screen"),
+            patch("goldberg_manager.cli.render_header"),
+            self.assertRaises(RuntimeError) as raised,
+        ):
+            create_steam_settings_backup_menu(
+                AppConfig(),
+                translations=MappingTranslations(),
+            )
+
+        self.assertIs(raised.exception, error)
+        writer.assert_called_once_with(game)
+        self.assertEqual(writer.call_args.kwargs, {})
+        console_print.assert_not_called()
+        pause.assert_not_called()
+
+    def test_translated_and_dynamic_rich_content_renders_literally(self) -> None:
+        output = StringIO()
+        test_console = Console(file=output, width=240, color_system=None)
+        snapshot_path = Path("/backups/[red]literal path[/red]/snapshot")
+        translations = MappingTranslations(
+            {
+                "Backup de steam_settings criado com sucesso!": (
+                    "[green]literal success[/green]"
+                ),
+                "Pressione Enter para continuar...": "[cyan]literal pause[/cyan]",
+            }
+        )
+
+        with (
+            patch("goldberg_manager.cli.get_menu_game", return_value=make_game()),
+            patch(
+                "goldberg_manager.cli.create_steam_settings_backup",
+                return_value=snapshot_path,
+            ),
+            patch("goldberg_manager.cli.console", test_console),
+            patch("goldberg_manager.cli.pause") as pause,
+            patch("goldberg_manager.cli.clear_screen"),
+            patch("goldberg_manager.cli.render_header"),
+        ):
+            create_steam_settings_backup_menu(
+                AppConfig(),
+                translations=translations,
+            )
+
+        rendered = output.getvalue()
+        self.assertIn("[green]literal success[/green]", rendered)
+        self.assertIn(str(snapshot_path), rendered)
+        pause.assert_called_once_with("[cyan]literal pause[/cyan]")
+
+    def test_translated_error_and_dynamic_detail_render_literally(self) -> None:
+        output = StringIO()
+        test_console = Console(file=output, width=240, color_system=None)
+        error = OSError("[green]literal detail[/green]")
+        translations = MappingTranslations(
+            {
+                "Não foi possível criar o backup": "[red]literal framing[/red]",
+                "Pressione Enter para continuar...": "Translated pause",
+            }
+        )
+
+        with (
+            patch("goldberg_manager.cli.get_menu_game", return_value=make_game()),
+            patch(
+                "goldberg_manager.cli.create_steam_settings_backup",
+                side_effect=error,
+            ),
+            patch("goldberg_manager.cli.console", test_console),
+            patch("goldberg_manager.cli.pause") as pause,
+            patch("goldberg_manager.cli.clear_screen"),
+            patch("goldberg_manager.cli.render_header"),
+        ):
+            create_steam_settings_backup_menu(
+                AppConfig(),
+                translations=translations,
+            )
+
+        self.assertIn(
+            "[red]literal framing[/red]: [green]literal detail[/green]",
+            output.getvalue(),
+        )
+        pause.assert_called_once_with("Translated pause")
 
 
 class SteamSettingsBackupsListingTests(unittest.TestCase):

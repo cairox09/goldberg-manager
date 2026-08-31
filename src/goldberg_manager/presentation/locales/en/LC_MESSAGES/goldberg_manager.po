@@ -397,6 +397,21 @@ msgstr "Error creating backup"
 msgid "Backup criado com sucesso."
 msgstr "Backup created successfully."
 
+msgid "Selecione o jogo que deseja restaurar:"
+msgstr "Select the game you want to restore:"
+
+msgid "Nenhum backup foi encontrado para este jogo."
+msgstr "No backup was found for this game."
+
+msgid "Restaurar a Steam API original?"
+msgstr "Restore the original Steam API?"
+
+msgid "Erro ao restaurar backup"
+msgstr "Error restoring backup"
+
+msgid "Steam API original restaurada com sucesso."
+msgstr "Original Steam API restored successfully."
+
 msgid "O que deseja fazer?"
 msgstr "What would you like to do?"
 

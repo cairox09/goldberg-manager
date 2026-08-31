@@ -822,7 +822,7 @@ class AchievementGameResolutionTests(unittest.TestCase):
             integration.assert_called_once_with(game, translations=ANY)
             repair_integration.assert_called_once_with(game)
             backup.assert_called_once_with(game, translations=ANY)
-            restore.assert_called_once_with(game)
+            restore.assert_called_once_with(game, translations=ANY)
 
 
 if __name__ == "__main__":

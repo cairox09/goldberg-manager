@@ -408,14 +408,29 @@ def create_game_backup(
     pause(message("Pressione Enter para continuar..."))
 
 
-def restore_game_api(game) -> None:
+def restore_game_api(
+    game,
+    *,
+    translations: Translations | None = None,
+) -> None:
+    if translations is None:
+        translations = load_translations()
+
+    def message(text: str) -> str:
+        return translations.gettext(text)
+
     if not has_backup(game):
-        console.print("[yellow]Nenhum backup foi encontrado para este jogo.[/yellow]")
-        pause()
+        console.print(
+            Text(
+                message("Nenhum backup foi encontrado para este jogo."),
+                style="yellow",
+            )
+        )
+        pause(message("Pressione Enter para continuar..."))
         return
 
     confirm = questionary.confirm(
-        "Restaurar a Steam API original?",
+        message("Restaurar a Steam API original?"),
         default=False,
     ).ask()
 
@@ -425,12 +440,21 @@ def restore_game_api(game) -> None:
     try:
         restore_game_backup(game)
     except (OSError, ValueError) as exc:
-        console.print(f"[red]Erro ao restaurar backup:[/red] {exc}")
-        pause()
+        error_message = Text()
+        error_message.append(message("Erro ao restaurar backup"), style="red")
+        error_message.append(": ")
+        error_message.append(str(exc))
+        console.print(error_message)
+        pause(message("Pressione Enter para continuar..."))
         return
 
-    console.print("[green]Steam API original restaurada com sucesso.[/green]")
-    pause()
+    console.print(
+        Text(
+            message("Steam API original restaurada com sucesso."),
+            style="green",
+        )
+    )
+    pause(message("Pressione Enter para continuar..."))
 
 
 def render_game_profile(
@@ -646,7 +670,10 @@ def show_game_details(
             )
 
         elif choice == "steam_api_restore":
-            restore_game_api(game)
+            restore_game_api(
+                game,
+                translations=translations,
+            )
 
         else:
             return
@@ -4845,11 +4872,21 @@ def backup_game_menu(
     )
 
 
-def restore_game_menu(config: AppConfig) -> None:
+def restore_game_menu(
+    config: AppConfig,
+    *,
+    translations: Translations | None = None,
+) -> None:
     clear_screen()
     render_header()
 
-    games = get_detected_games(config)
+    if translations is None:
+        translations = load_translations()
+
+    games = get_detected_games(
+        config,
+        translations=translations,
+    )
 
     if games is None:
         return
@@ -4857,12 +4894,16 @@ def restore_game_menu(config: AppConfig) -> None:
     game = select_game(
         games,
         "Selecione o jogo que deseja restaurar:",
+        translations=translations,
     )
 
     if game is None:
         return
 
-    restore_game_api(game)
+    restore_game_api(
+        game,
+        translations=translations,
+    )
 
 
 def open_game_directory_menu(

@@ -521,6 +521,37 @@ class GameDetailsI18nTests(unittest.TestCase):
         )
         self.assertIs(backup.call_args.kwargs["translations"], translations)
 
+    def test_steam_api_restore_route_propagates_exact_translation_object(self) -> None:
+        game = make_game("Jogo")
+        translations = FakeTranslations("duplicate title")
+
+        with (
+            patch("goldberg_manager.cli.questionary.select") as select,
+            patch("goldberg_manager.cli.restore_game_api") as restore,
+            patch("goldberg_manager.cli.has_backup", return_value=False),
+            patch("goldberg_manager.cli.clear_screen"),
+            patch("goldberg_manager.cli.render_header"),
+            patch("goldberg_manager.cli.console.print"),
+        ):
+            select.return_value.ask.side_effect = ["steam_api_restore", "back"]
+
+            show_game_details(game, translations=translations)
+
+        first_choices = select.call_args_list[0].kwargs["choices"]
+        self.assertTrue(
+            all(choice.title == "duplicate title" for choice in first_choices)
+        )
+        self.assertEqual(
+            [choice.value for choice in first_choices],
+            GAME_DETAILS_VALUES,
+        )
+        restore.assert_called_once_with(
+            game,
+            translations=translations,
+        )
+        self.assertIs(restore.call_args.args[0], game)
+        self.assertIs(restore.call_args.kwargs["translations"], translations)
+
     def test_none_back_and_unknown_values_return_without_action(self) -> None:
         game = make_game("Jogo")
 

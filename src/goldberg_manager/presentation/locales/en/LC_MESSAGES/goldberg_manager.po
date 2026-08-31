@@ -845,3 +845,12 @@ msgstr "CORRUPTED"
 
 msgid "Diretório"
 msgstr "Directory"
+
+msgid "Selecione o jogo para criar o backup de steam_settings:"
+msgstr "Select the game to create the steam_settings backup:"
+
+msgid "Não foi possível criar o backup"
+msgstr "Could not create the backup"
+
+msgid "Backup de steam_settings criado com sucesso!"
+msgstr "steam_settings backup created successfully!"

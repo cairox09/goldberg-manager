@@ -382,6 +382,21 @@ msgstr "Back up the Steam API"
 msgid "Restaurar Steam API original"
 msgstr "Restore the original Steam API"
 
+msgid "Selecione o jogo para criar o backup:"
+msgstr "Select the game to back up:"
+
+msgid "Já existe um backup da Steam API para este jogo."
+msgstr "A Steam API backup already exists for this game."
+
+msgid "Deseja criar um backup da Steam API original?"
+msgstr "Would you like to back up the original Steam API?"
+
+msgid "Erro ao criar backup"
+msgstr "Error creating backup"
+
+msgid "Backup criado com sucesso."
+msgstr "Backup created successfully."
+
 msgid "O que deseja fazer?"
 msgstr "What would you like to do?"
 

@@ -115,7 +115,6 @@ class ManageSteamSettingsRoutingTests(unittest.TestCase):
         cases = (
             ("edit", "edit_steam_settings_menu"),
             ("generate", "generate_steam_settings_menu"),
-            ("backups", "manage_steam_settings_backups_menu"),
         )
 
         for value, expected_action in cases:
@@ -144,6 +143,46 @@ class ManageSteamSettingsRoutingTests(unittest.TestCase):
             for action_name, action in actions.items():
                 if action_name != expected_action:
                     action.assert_not_called()
+
+    def test_backups_dispatch_forwards_only_exact_translations(self) -> None:
+        config = AppConfig()
+        game = make_game()
+        translations = MappingTranslations()
+
+        with (
+            patch("goldberg_manager.cli.questionary.select") as select,
+            patch("goldberg_manager.cli.show_current_steam_settings_menu") as current,
+            patch("goldberg_manager.cli.edit_steam_settings_menu") as edit,
+            patch("goldberg_manager.cli.generate_steam_settings_menu") as generate,
+            patch("goldberg_manager.cli.manage_steam_settings_backups_menu") as backups,
+            patch("goldberg_manager.cli.clear_screen"),
+            patch("goldberg_manager.cli.render_header"),
+        ):
+            select.return_value.ask.side_effect = ["backups", "back"]
+            manage_steam_settings_menu(
+                config,
+                game,
+                translations=translations,
+            )
+
+        backups.assert_called_once_with(
+            config,
+            game=game,
+            translations=translations,
+        )
+        self.assertIs(backups.call_args.args[0], config)
+        self.assertIs(backups.call_args.kwargs["game"], game)
+        self.assertIs(backups.call_args.kwargs["translations"], translations)
+        self.assertEqual(
+            backups.call_args.kwargs,
+            {
+                "game": game,
+                "translations": translations,
+            },
+        )
+        current.assert_not_called()
+        edit.assert_not_called()
+        generate.assert_not_called()
 
     def test_current_dispatch_forwards_only_exact_translations(self) -> None:
         config = AppConfig()

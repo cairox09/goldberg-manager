@@ -3821,14 +3821,23 @@ def create_steam_settings_backup_menu(
 def list_steam_settings_backups_menu(
     config: AppConfig,
     game: Game | None = None,
+    *,
+    translations: Translations | None = None,
 ) -> None:
     clear_screen()
     render_header()
+
+    if translations is None:
+        translations = load_translations()
+
+    def message(text: str) -> str:
+        return translations.gettext(text)
 
     game = get_menu_game(
         config,
         game,
         "Selecione o jogo para listar os backups:",
+        translations=translations,
     )
 
     if game is None:
@@ -3837,35 +3846,50 @@ def list_steam_settings_backups_menu(
     try:
         backups = list_steam_settings_backups(game)
     except OSError as exc:
-        console.print(f"[red]Não foi possível listar os backups:[/red] {exc}")
-        pause()
+        error_message = Text()
+        error_message.append(
+            message("Não foi possível listar os backups"),
+            style="red",
+        )
+        error_message.append(": ")
+        error_message.append(str(exc))
+        console.print(error_message)
+        pause(message("Pressione Enter para continuar..."))
         return
 
     if not backups:
         console.print(
-            "[yellow]Nenhum backup de steam_settings "
-            "foi encontrado para este jogo.[/yellow]"
+            Text(
+                message(
+                    "Nenhum backup de steam_settings foi encontrado para este jogo."
+                ),
+                style="yellow",
+            )
         )
-        pause()
+        pause(message("Pressione Enter para continuar..."))
         return
 
+    title = Text(message("Backups de"))
+    title.append(" ")
+    title.append(str(game.name))
+
     table = Table(
-        title=f"Backups de {game.name}",
+        title=title,
         box=box.ROUNDED,
         border_style="green",
     )
 
     table.add_column(
-        "#",
+        Text("#"),
         justify="right",
         style="bold cyan",
     )
-    table.add_column("Data")
+    table.add_column(Text(message("Data")))
     table.add_column(
-        "Arquivos",
+        Text(message("Arquivos")),
         justify="right",
     )
-    table.add_column("Integridade")
+    table.add_column(Text(message("Integridade")))
 
     for index, backup in enumerate(
         backups,
@@ -3874,18 +3898,25 @@ def list_steam_settings_backups_menu(
         created_at = backup.created_at.astimezone()
 
         table.add_row(
-            str(index),
-            created_at.strftime("%d/%m/%Y %H:%M:%S"),
-            str(backup.file_count),
-            ("[green]Íntegro[/green]" if backup.valid else "[red]CORROMPIDO[/red]"),
+            Text(str(index)),
+            Text(created_at.strftime("%d/%m/%Y %H:%M:%S")),
+            Text(str(backup.file_count)),
+            Text(
+                message("Íntegro" if backup.valid else "CORROMPIDO"),
+                style="green" if backup.valid else "red",
+            ),
         )
 
     console.print(table)
 
     console.print()
-    console.print(f"[dim]Diretório: {backups[0].path.parent}[/dim]")
+    directory = Text(style="dim")
+    directory.append(message("Diretório"))
+    directory.append(": ")
+    directory.append(str(backups[0].path.parent))
+    console.print(directory)
 
-    pause()
+    pause(message("Pressione Enter para continuar..."))
 
 
 def restore_steam_settings_backup_menu(
@@ -4044,37 +4075,55 @@ def restore_steam_settings_backup_menu(
 def manage_steam_settings_backups_menu(
     config: AppConfig,
     game: Game | None = None,
+    *,
+    translations: Translations | None = None,
 ) -> None:
+    if translations is None:
+        translations = load_translations()
+
     while True:
         clear_screen()
         render_header()
 
         choice = questionary.select(
-            "Backups de steam_settings:",
+            f"{translations.gettext('Backups de steam_settings')}:",
             choices=[
-                "Criar backup agora",
-                "Ver backups",
-                "Restaurar backup",
-                "Voltar",
+                questionary.Choice(
+                    title=translations.gettext("Criar backup agora"),
+                    value="create",
+                ),
+                questionary.Choice(
+                    title=translations.gettext("Ver backups"),
+                    value="list",
+                ),
+                questionary.Choice(
+                    title=translations.gettext("Restaurar backup"),
+                    value="restore",
+                ),
+                questionary.Choice(
+                    title=translations.gettext("Voltar"),
+                    value="back",
+                ),
             ],
         ).ask()
 
-        if choice is None or choice == "Voltar":
+        if choice is None or choice == "back":
             return
 
-        if choice == "Criar backup agora":
+        if choice == "create":
             create_steam_settings_backup_menu(
                 config,
                 game=game,
             )
 
-        elif choice == "Ver backups":
+        elif choice == "list":
             list_steam_settings_backups_menu(
                 config,
                 game=game,
+                translations=translations,
             )
 
-        elif choice == "Restaurar backup":
+        elif choice == "restore":
             restore_steam_settings_backup_menu(
                 config,
                 game=game,
@@ -4146,6 +4195,7 @@ def manage_steam_settings_menu(
             manage_steam_settings_backups_menu(
                 config,
                 game=game,
+                translations=translations,
             )
 
 

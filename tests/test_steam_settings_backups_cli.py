@@ -1426,6 +1426,63 @@ class SteamSettingsBackupRestorationTests(unittest.TestCase):
             self.assertIn(expected, rendered)
         pause.assert_called_once_with("[cyan]literal pause[/cyan]")
 
+    def test_rich_like_safety_backup_success_values_are_literal(self) -> None:
+        game = make_game()
+        backup = make_settings_backup()
+        safety_path = Path("/backups/[cyan]literal safety path[/cyan]")
+        translated_success = "[green]literal safety success[/green]"
+        translations = MappingTranslations(
+            {"Backup de segurança da configuração atual criado.": (translated_success)}
+        )
+        output = StringIO()
+        test_console = Console(file=output, width=260, color_system=None)
+
+        with tempfile.TemporaryDirectory() as temp_directory:
+            current_settings = Path(temp_directory) / "steam_settings"
+            current_settings.mkdir()
+
+            with (
+                patch("goldberg_manager.cli.get_menu_game", return_value=game),
+                patch(
+                    "goldberg_manager.cli.list_steam_settings_backups",
+                    return_value=[backup],
+                ),
+                patch("goldberg_manager.cli.questionary.select") as select,
+                patch("goldberg_manager.cli.questionary.confirm") as confirm,
+                patch(
+                    "goldberg_manager.cli.get_steam_settings_directory",
+                    return_value=current_settings,
+                ),
+                patch(
+                    "goldberg_manager.cli.create_steam_settings_backup",
+                    return_value=safety_path,
+                ) as create,
+                patch(
+                    "goldberg_manager.cli.restore_steam_settings_backup",
+                    return_value=Path("/game/steam_settings"),
+                ) as restore,
+                patch("goldberg_manager.cli.console", test_console),
+                patch("goldberg_manager.cli.pause"),
+                patch("goldberg_manager.cli.clear_screen"),
+                patch("goldberg_manager.cli.render_header"),
+            ):
+                select.return_value.ask.return_value = 0
+                confirm.return_value.ask.return_value = True
+                restore_steam_settings_backup_menu(
+                    AppConfig(),
+                    translations=translations,
+                )
+
+        confirm.assert_called_once_with(
+            "Restaurar este snapshot? A configuração atual será substituída.",
+            default=False,
+        )
+        create.assert_called_once_with(game)
+        restore.assert_called_once_with(game, backup.path)
+        rendered = output.getvalue()
+        self.assertIn(translated_success, rendered)
+        self.assertIn(str(safety_path), rendered)
+
 
 class SteamSettingsBackupCreationRoutingTests(unittest.TestCase):
     def test_default_submenu_to_real_creation_loads_once_and_preserves_identity(

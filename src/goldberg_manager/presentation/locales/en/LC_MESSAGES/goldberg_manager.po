@@ -869,3 +869,34 @@ msgstr "Could not create the backup"
 
 msgid "Backup de steam_settings criado com sucesso!"
 msgstr "steam_settings backup created successfully!"
+
+msgid "Selecione o jogo cujo backup deseja restaurar:"
+msgstr "Select the game whose backup you want to restore:"
+
+msgid "Selecione o backup:"
+msgstr "Select the backup:"
+
+#, python-brace-format
+msgid "{count} arquivos"
+msgstr "{count} files"
+
+msgid "Este backup está corrompido e não pode ser restaurado."
+msgstr "This backup is corrupted and cannot be restored."
+
+msgid "Restaurar este snapshot? A configuração atual será substituída."
+msgstr "Restore this snapshot? The current configuration will be replaced."
+
+msgid "Não foi possível criar o backup de segurança antes da restauração"
+msgstr "Could not create the safety backup before restoration"
+
+msgid "A restauração foi cancelada."
+msgstr "The restoration was canceled."
+
+msgid "Backup de segurança da configuração atual criado."
+msgstr "Safety backup of the current configuration created."
+
+msgid "Falha ao restaurar o backup"
+msgstr "Failed to restore the backup"
+
+msgid "steam_settings restaurado com sucesso!"
+msgstr "steam_settings restored successfully!"

@@ -3990,7 +3990,16 @@ def list_steam_settings_backups_menu(
 def restore_steam_settings_backup_menu(
     config: AppConfig,
     game: Game | None = None,
+    *,
+    translations: Translations | None = None,
 ) -> None:
+    if translations is None:
+        translations = load_translations()
+
+    def message(text: str, **values: object) -> str:
+        translated = translations.gettext(text)
+        return translated.format(**values) if values else translated
+
     clear_screen()
     render_header()
 
@@ -3998,6 +4007,7 @@ def restore_steam_settings_backup_menu(
         config,
         game,
         "Selecione o jogo cujo backup deseja restaurar:",
+        translations=translations,
     )
 
     if game is None:
@@ -4006,19 +4016,30 @@ def restore_steam_settings_backup_menu(
     try:
         backups = list_steam_settings_backups(game)
     except OSError as exc:
-        console.print(f"[red]Não foi possível listar os backups:[/red] {exc}")
-        pause()
+        error_message = Text()
+        error_message.append(
+            message("Não foi possível listar os backups"),
+            style="red",
+        )
+        error_message.append(": ")
+        error_message.append(str(exc))
+        console.print(error_message)
+        pause(message("Pressione Enter para continuar..."))
         return
 
     if not backups:
         console.print(
-            "[yellow]Nenhum backup de steam_settings "
-            "foi encontrado para este jogo.[/yellow]"
+            Text(
+                message(
+                    "Nenhum backup de steam_settings foi encontrado para este jogo."
+                ),
+                style="yellow",
+            )
         )
-        pause()
+        pause(message("Pressione Enter para continuar..."))
         return
 
-    choices: list[str] = []
+    choices: list[questionary.Choice] = []
 
     for index, backup in enumerate(
         backups,
@@ -4026,34 +4047,45 @@ def restore_steam_settings_backup_menu(
     ):
         created_at = backup.created_at.astimezone()
 
-        integrity = "íntegro" if backup.valid else "CORROMPIDO"
+        integrity = message("Íntegro" if backup.valid else "CORROMPIDO")
 
         choices.append(
-            f"{index} - "
-            f"{created_at.strftime('%d/%m/%Y %H:%M:%S')} "
-            f"• {backup.file_count} arquivos "
-            f"• {integrity}"
+            questionary.Choice(
+                title=(
+                    f"{index} - "
+                    f"{created_at.strftime('%d/%m/%Y %H:%M:%S')} "
+                    f"• {message('{count} arquivos', count=backup.file_count)} "
+                    f"• {integrity}"
+                ),
+                value=index - 1,
+            )
         )
 
-    choices.append("Voltar")
+    choices.append(
+        questionary.Choice(
+            title=message("Voltar"),
+            value="back",
+        )
+    )
 
     selected = questionary.select(
-        "Selecione o backup:",
+        message("Selecione o backup:"),
         choices=choices,
     ).ask()
 
-    if selected is None or selected == "Voltar":
+    if selected is None or selected == "back":
         return
 
-    index = int(selected.split(" - ", 1)[0]) - 1
-
-    backup = backups[index]
+    backup = backups[selected]
 
     if not backup.valid:
         console.print(
-            "[red]Este backup está corrompido e não pode ser restaurado.[/red]"
+            Text(
+                message("Este backup está corrompido e não pode ser restaurado."),
+                style="red",
+            )
         )
-        pause()
+        pause(message("Pressione Enter para continuar..."))
         return
 
     console.print()
@@ -4063,33 +4095,33 @@ def restore_steam_settings_backup_menu(
     table.add_column()
 
     table.add_row(
-        "Jogo",
-        game.name,
+        Text(message("Jogo")),
+        Text(str(game.name)),
     )
     table.add_row(
-        "Backup",
-        backup.created_at.astimezone().strftime("%d/%m/%Y %H:%M:%S"),
+        Text(message("Backup")),
+        Text(backup.created_at.astimezone().strftime("%d/%m/%Y %H:%M:%S")),
     )
     table.add_row(
-        "Arquivos",
-        str(backup.file_count),
+        Text(message("Arquivos")),
+        Text(str(backup.file_count)),
     )
     table.add_row(
-        "Integridade",
-        "Íntegro",
+        Text(message("Integridade")),
+        Text(message("Íntegro")),
     )
 
     console.print(
         Panel(
             table,
-            title="Restaurar backup",
+            title=Text(message("Restaurar backup")),
             border_style="yellow",
             box=box.ROUNDED,
         )
     )
 
     confirm = questionary.confirm(
-        "Restaurar este snapshot? A configuração atual será substituída.",
+        message("Restaurar este snapshot? A configuração atual será substituída."),
         default=False,
     ).ask()
 
@@ -4106,19 +4138,32 @@ def restore_steam_settings_backup_menu(
             OSError,
             ValueError,
         ) as exc:
-            console.print(
-                "[red]Não foi possível criar o "
-                "backup de segurança antes da restauração:[/red] "
-                f"{exc}"
+            error_message = Text()
+            error_message.append(
+                message(
+                    "Não foi possível criar o backup de segurança antes da restauração"
+                ),
+                style="red",
             )
-            console.print("[yellow]A restauração foi cancelada.[/yellow]")
-            pause()
+            error_message.append(": ")
+            error_message.append(str(exc))
+            console.print(error_message)
+            console.print(
+                Text(
+                    message("A restauração foi cancelada."),
+                    style="yellow",
+                )
+            )
+            pause(message("Pressione Enter para continuar..."))
             return
 
         console.print(
-            "[green]✓ Backup de segurança da configuração atual criado.[/green]"
+            Text(
+                f"✓ {message('Backup de segurança da configuração atual criado.')}",
+                style="green",
+            )
         )
-        console.print(f"[dim]{safety_backup}[/dim]")
+        console.print(Text(str(safety_backup), style="dim"))
 
     try:
         restored_path = restore_steam_settings_backup(
@@ -4129,15 +4174,27 @@ def restore_steam_settings_backup_menu(
         OSError,
         ValueError,
     ) as exc:
-        console.print(f"[red]Falha ao restaurar o backup:[/red] {exc}")
-        pause()
+        error_message = Text()
+        error_message.append(
+            message("Falha ao restaurar o backup"),
+            style="red",
+        )
+        error_message.append(": ")
+        error_message.append(str(exc))
+        console.print(error_message)
+        pause(message("Pressione Enter para continuar..."))
         return
 
     console.print()
-    console.print("[green]steam_settings restaurado com sucesso![/green]")
-    console.print(f"[dim]{restored_path}[/dim]")
+    console.print(
+        Text(
+            message("steam_settings restaurado com sucesso!"),
+            style="green",
+        )
+    )
+    console.print(Text(str(restored_path), style="dim"))
 
-    pause()
+    pause(message("Pressione Enter para continuar..."))
 
 
 def manage_steam_settings_backups_menu(
@@ -4196,6 +4253,7 @@ def manage_steam_settings_backups_menu(
             restore_steam_settings_backup_menu(
                 config,
                 game=game,
+                translations=translations,
             )
 
 

@@ -3101,14 +3101,20 @@ def show_settings(config: AppConfig) -> None:
 def generate_steam_interfaces_menu(
     config: AppConfig,
     game: Game | None = None,
+    *,
+    translations: Translations | None = None,
 ) -> None:
     clear_screen()
     render_header()
+
+    if translations is None:
+        translations = load_translations()
 
     game = get_menu_game(
         config,
         game,
         "Selecione o jogo para gerar steam_interfaces:",
+        translations=translations,
     )
 
     if game is None:
@@ -3116,24 +3122,45 @@ def generate_steam_interfaces_menu(
 
     if not has_backup(game):
         console.print(
-            "[yellow]Este jogo ainda não possui backup da Steam API original.[/yellow]"
+            Text(
+                translations.gettext(
+                    "Este jogo ainda não possui backup da Steam API original."
+                ),
+                style="yellow",
+            )
         )
-        console.print(
-            "Crie primeiro um backup usando a opção [bold]Backup do jogo[/bold]."
+        backup_guidance = translations.gettext(
+            "Crie primeiro um backup usando a opção Backup do jogo."
         )
-        pause()
+        backup_option = translations.gettext("Backup do jogo")
+        backup_guidance_text = Text(backup_guidance)
+        option_start = backup_guidance.find(backup_option)
+        if option_start >= 0:
+            backup_guidance_text.stylize(
+                "bold",
+                option_start,
+                option_start + len(backup_option),
+            )
+        console.print(backup_guidance_text)
+        pause(translations.gettext("Pressione Enter para continuar..."))
         return
 
     if not verify_backup(game):
         console.print(
-            "[red]O backup da Steam API não passou pela "
-            "verificação de integridade.[/red]"
+            Text(
+                translations.gettext(
+                    "O backup da Steam API não passou pela verificação de integridade."
+                ),
+                style="red",
+            )
         )
-        pause()
+        pause(translations.gettext("Pressione Enter para continuar..."))
         return
 
     confirm = questionary.confirm(
-        f"Gerar steam_interfaces.txt para {game.name}?",
+        translations.gettext("Gerar steam_interfaces.txt para {game}?").format(
+            game=game.name
+        ),
         default=True,
     ).ask()
 
@@ -3148,13 +3175,27 @@ def generate_steam_interfaces_menu(
             command_prefix=("wine",),
         )
     except (FileNotFoundError, RuntimeError, ValueError, OSError) as exc:
-        console.print(f"[red]Erro ao gerar steam_interfaces.txt:[/red] {exc}")
-        pause()
+        console.print(
+            Text.assemble(
+                Text(
+                    translations.gettext("Erro ao gerar steam_interfaces.txt:"),
+                    style="red",
+                ),
+                " ",
+                Text(str(exc)),
+            )
+        )
+        pause(translations.gettext("Pressione Enter para continuar..."))
         return
 
-    console.print("[green]steam_interfaces.txt gerado com sucesso.[/green]")
-    console.print(f"[dim]{output_path}[/dim]")
-    pause()
+    console.print(
+        Text(
+            translations.gettext("steam_interfaces.txt gerado com sucesso."),
+            style="green",
+        )
+    )
+    console.print(Text(str(output_path), style="dim"))
+    pause(translations.gettext("Pressione Enter para continuar..."))
 
 
 def show_current_steam_settings_menu(

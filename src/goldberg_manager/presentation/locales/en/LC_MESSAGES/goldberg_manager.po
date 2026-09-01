@@ -900,3 +900,25 @@ msgstr "Failed to restore the backup"
 
 msgid "steam_settings restaurado com sucesso!"
 msgstr "steam_settings restored successfully!"
+
+msgid "Selecione o jogo para gerar steam_interfaces:"
+msgstr "Select the game to generate steam_interfaces:"
+
+msgid "Este jogo ainda não possui backup da Steam API original."
+msgstr "This game does not yet have a backup of the original Steam API."
+
+msgid "Crie primeiro um backup usando a opção Backup do jogo."
+msgstr "First create a backup using the Back up game option."
+
+msgid "O backup da Steam API não passou pela verificação de integridade."
+msgstr "The Steam API backup failed the integrity check."
+
+#, python-brace-format
+msgid "Gerar steam_interfaces.txt para {game}?"
+msgstr "Generate steam_interfaces.txt for {game}?"
+
+msgid "Erro ao gerar steam_interfaces.txt:"
+msgstr "Error generating steam_interfaces.txt:"
+
+msgid "steam_interfaces.txt gerado com sucesso."
+msgstr "steam_interfaces.txt generated successfully."

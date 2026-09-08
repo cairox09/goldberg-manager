@@ -922,3 +922,168 @@ msgstr "Error generating steam_interfaces.txt:"
 
 msgid "steam_interfaces.txt gerado com sucesso."
 msgstr "steam_interfaces.txt generated successfully."
+
+msgid "Sentinel • Plano de reparo"
+msgstr "Sentinel • Repair plan"
+
+msgid "Sentinel • Estado pós-operação"
+msgstr "Sentinel • Post-operation state"
+
+msgid "Mensagem"
+msgstr "Message"
+
+msgid "Prefix adicionado"
+msgstr "Added prefix"
+
+msgid "Parcial"
+msgstr "Partial"
+
+msgid "Rollback executado"
+msgstr "Rollback performed"
+
+msgid "Resultado do reparo Sentinel"
+msgstr "Sentinel repair result"
+
+msgid "A operação falhou, mas a configuração original foi restaurada pelo rollback."
+msgstr "The operation failed, but the original configuration was restored by rollback."
+
+msgid "Falha crítica: o rollback FALHOU e a restauração do original não pôde ser confirmada."
+msgstr "Critical failure: rollback FAILED and restoration of the original could not be confirmed."
+
+msgid "CONFLICT: a configuração mudou durante a operação; nenhuma alteração concorrente foi sobrescrita."
+msgstr "CONFLICT: the configuration changed during the operation; no concurrent changes were overwritten."
+
+msgid "Não foi possível resolver o reparo do Sentinel."
+msgstr "Could not resolve the Sentinel repair."
+
+msgid "Nenhuma alteração foi realizada."
+msgstr "No changes were made."
+
+msgid "O emulator GSE está desabilitado. Esta versão não o habilita automaticamente."
+msgstr "The GSE emulator is disabled. This version does not enable it automatically."
+
+msgid "O save GSE efetivo não pôde ser determinado com segurança."
+msgstr "The effective GSE save could not be determined safely."
+
+msgid "O save GSE efetivo não pôde ser resolvido com segurança."
+msgstr "The effective GSE save could not be resolved safely."
+
+msgid "Nenhuma correção automática será proposta."
+msgstr "No automatic repair will be proposed."
+
+msgid "Nenhuma correção é necessária."
+msgstr "No repair is needed."
+
+msgid "Não existe candidate prefix seguro que esta versão possa adicionar."
+msgstr "There is no safe candidate prefix that this version can add."
+
+msgid "É necessária uma mudança na configuração de saves do GSE; ela não será feita automaticamente."
+msgstr "A change to the GSE save configuration is required; it will not be made automatically."
+
+msgid "O planner não produziu um reparo representável com segurança. Nenhuma alteração foi realizada."
+msgstr "The planner did not produce a repair that can be represented safely. No changes were made."
+
+msgid "Esta correção é PARCIAL."
+msgstr "This repair is PARTIAL."
+
+msgid "As locations classificadas como não suportadas continuarão sem cobertura."
+msgstr "Locations classified as unsupported will remain uncovered."
+
+msgid "Uma correção completa também requer mudança no GSE."
+msgstr "A complete repair also requires a GSE change."
+
+msgid "Esta correção pode ser feita no Sentinel."
+msgstr "This repair can be performed in Sentinel."
+
+msgid "Será adicionado"
+msgstr "Will be added"
+
+msgid "Alteração proposta"
+msgstr "Proposed change"
+
+msgid "Nenhum prefix existente será removido."
+msgstr "No existing prefix will be removed."
+
+msgid "Nenhuma configuração GSE será modificada."
+msgstr "No GSE configuration will be modified."
+
+msgid "Um backup será criado automaticamente."
+msgstr "A backup will be created automatically."
+
+msgid "Somente a lista prefixes do Sentinel será alterada."
+msgstr "Only the Sentinel prefixes list will be changed."
+
+msgid "Aplicar esta correção parcial do Sentinel?"
+msgstr "Apply this partial Sentinel repair?"
+
+msgid "Aplicar esta correção do Sentinel?"
+msgstr "Apply this Sentinel repair?"
+
+msgid "Correção cancelada. Nenhuma alteração foi realizada."
+msgstr "Repair canceled. No changes were made."
+
+msgid "A alteração foi aplicada, mas não foi possível reconsultar a integração:"
+msgstr "The change was applied, but the integration could not be checked again:"
+
+msgid "Links simbólicos não são suportados para escrita segura."
+msgstr "Symbolic links are not supported for safe writes."
+
+msgid "A configuração do Sentinel não é um arquivo regular."
+msgstr "The Sentinel configuration is not a regular file."
+
+msgid "A configuração atual do Sentinel não é UTF-8 válido."
+msgstr "The current Sentinel configuration is not valid UTF-8."
+
+msgid "A configuração atual do Sentinel é inválida."
+msgstr "The current Sentinel configuration is invalid."
+
+msgid "A configuração mudou durante a revalidação."
+msgstr "The configuration changed during revalidation."
+
+msgid "O plano de reparo mudou e agora contém alterações que não foram confirmadas. Revise o plano novamente."
+msgstr "The repair plan changed and now contains changes that were not confirmed. Review the plan again."
+
+msgid "O emulator GSE está desabilitado no Sentinel."
+msgstr "The GSE emulator is disabled in Sentinel."
+
+msgid "A cobertura já está atualizada."
+msgstr "Coverage is already up to date."
+
+msgid "Todas as ações seguras do plano já foram aplicadas."
+msgstr "All safe actions in the plan have already been applied."
+
+msgid "O reparo parcial exige autorização explícita."
+msgstr "Partial repair requires explicit authorization."
+
+msgid "Não há um conjunto de prefixes seguro para aplicar."
+msgstr "There is no safe set of prefixes to apply."
+
+msgid "Um candidate prefix ou drive_c não é um diretório válido."
+msgstr "A candidate prefix or drive_c is not a valid directory."
+
+msgid "O JSON bruto do Sentinel não possui o schema esperado."
+msgstr "The raw Sentinel JSON does not have the expected schema."
+
+msgid "Nenhum prefix novo precisa ser adicionado."
+msgstr "No new prefix needs to be added."
+
+msgid "Não foi possível localizar o array top-level prefixes."
+msgstr "Could not locate the top-level prefixes array."
+
+msgid "O arquivo temporário não passou pela validação."
+msgstr "The temporary file failed validation."
+
+msgid "A configuração mudou antes da substituição atômica."
+msgstr "The configuration changed before the atomic replacement."
+
+msgid "A configuração mudou após a escrita; o rollback não foi executado."
+msgstr "The configuration changed after the write; rollback was not performed."
+
+msgid "A validação pós-write falhou; a configuração foi restaurada."
+msgstr "Post-write validation failed; the configuration was restored."
+
+msgid "A validação pós-write e o rollback falharam."
+msgstr "Post-write validation and rollback failed."
+
+msgid "Prefixes do Sentinel atualizados com segurança."
+msgstr "Sentinel prefixes were updated safely."

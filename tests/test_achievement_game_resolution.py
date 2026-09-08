@@ -820,7 +820,7 @@ class AchievementGameResolutionTests(unittest.TestCase):
             gse_status.assert_called_once_with(game, translations=ANY)
             sentinel.assert_called_once_with(game, translations=ANY)
             integration.assert_called_once_with(game, translations=ANY)
-            repair_integration.assert_called_once_with(game)
+            repair_integration.assert_called_once_with(game, translations=ANY)
             backup.assert_called_once_with(game, translations=ANY)
             restore.assert_called_once_with(game, translations=ANY)
 

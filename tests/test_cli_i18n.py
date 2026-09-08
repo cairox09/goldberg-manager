@@ -336,7 +336,10 @@ class GameDetailsI18nTests(unittest.TestCase):
             [choice.value for choice in first_choices],
             GAME_DETAILS_VALUES,
         )
-        repair.assert_called_once_with(game)
+        repair.assert_called_once_with(
+            game,
+            translations=translations,
+        )
 
     def test_profile_route_propagates_exact_translation_object(self) -> None:
         game = make_game("Jogo")

@@ -661,7 +661,10 @@ def show_game_details(
             )
 
         elif choice == "sentinel_repair":
-            repair_game_sentinel_integration(game)
+            repair_game_sentinel_integration(
+                game,
+                translations=translations,
+            )
 
         elif choice == "steam_api_backup":
             create_game_backup(
@@ -2064,6 +2067,36 @@ _SENTINEL_REPAIR_KIND_LABELS = {
     SentinelRepairKind.UNRESOLVED: "save não resolvido",
 }
 
+_SENTINEL_CONFIG_WRITE_MESSAGE_IDS = frozenset(
+    {
+        "Links simbólicos não são suportados para escrita segura.",
+        "A configuração do Sentinel não foi encontrada.",
+        "A configuração do Sentinel não é um arquivo regular.",
+        "A configuração atual do Sentinel não é UTF-8 válido.",
+        "A configuração atual do Sentinel é inválida.",
+        "A configuração mudou durante a revalidação.",
+        (
+            "O plano de reparo mudou e agora contém alterações que não foram "
+            "confirmadas. Revise o plano novamente."
+        ),
+        "O emulator GSE está desabilitado no Sentinel.",
+        "A cobertura já está atualizada.",
+        "Todas as ações seguras do plano já foram aplicadas.",
+        "O reparo parcial exige autorização explícita.",
+        "Não há um conjunto de prefixes seguro para aplicar.",
+        "Um candidate prefix ou drive_c não é um diretório válido.",
+        "O JSON bruto do Sentinel não possui o schema esperado.",
+        "Nenhum prefix novo precisa ser adicionado.",
+        "Não foi possível localizar o array top-level prefixes.",
+        "O arquivo temporário não passou pela validação.",
+        "A configuração mudou antes da substituição atômica.",
+        "A configuração mudou após a escrita; o rollback não foi executado.",
+        "A validação pós-write falhou; a configuração foi restaurada.",
+        "A validação pós-write e o rollback falharam.",
+        "Prefixes do Sentinel atualizados com segurança.",
+    }
+)
+
 
 def _add_sentinel_repair_rows(
     table: Table,
@@ -2254,17 +2287,27 @@ def _show_sentinel_repair_plan(
     plan: SentinelRepairPlan,
     *,
     title: str,
+    translations: Translations | None = None,
 ) -> None:
+    if translations is None:
+        translations = load_translations()
+
+    def message(text: str) -> str:
+        return translations.gettext(text)
+
     table = Table.grid(padding=(0, 2))
     table.add_column(style="bold cyan", no_wrap=True)
     table.add_column(style="white")
-    table.add_row("Jogo", game.name)
-    table.add_row("Config", str(plan.coverage.sentinel_status.path))
-    _add_sentinel_repair_rows(table, plan)
+    table.add_row(Text(message("Jogo")), Text(str(game.name)))
+    table.add_row(
+        Text(message("Configuração")),
+        Text(str(plan.coverage.sentinel_status.path)),
+    )
+    _add_sentinel_repair_rows(table, plan, translations=translations)
     console.print(
         Panel(
             table,
-            title=title,
+            title=Text(message(title)),
             border_style=(
                 "green"
                 if not plan.needs_repair
@@ -2279,7 +2322,15 @@ def _show_sentinel_repair_plan(
 
 def show_sentinel_config_write_result(
     result: SentinelConfigWriteResult,
+    *,
+    translations: Translations | None = None,
 ) -> None:
+    if translations is None:
+        translations = load_translations()
+
+    def message(text: str) -> str:
+        return translations.gettext(text)
+
     status_styles = {
         SentinelConfigWriteStatus.APPLIED: "green",
         SentinelConfigWriteStatus.NO_CHANGE: "cyan",
@@ -2292,31 +2343,48 @@ def show_sentinel_config_write_result(
     table = Table.grid(padding=(0, 2))
     table.add_column(style="bold cyan", no_wrap=True)
     table.add_column(style="white")
-    table.add_row("Status", f"[{style}]{result.status.name}[/{style}]")
-    table.add_row("Reason", result.reason.name)
-    table.add_row("Config", str(result.config_path))
+    table.add_row(
+        Text(message("Status")),
+        Text(result.status.name, style=style),
+    )
+    table.add_row(Text(message("Motivo")), Text(result.reason.name))
+    table.add_row(Text(message("Configuração")), Text(str(result.config_path)))
 
     if result.message:
-        table.add_row("Mensagem", result.message)
+        result_message = (
+            message(result.message)
+            if result.message in _SENTINEL_CONFIG_WRITE_MESSAGE_IDS
+            else result.message
+        )
+        table.add_row(Text(message("Mensagem")), Text(result_message))
 
     for index, prefix in enumerate(result.added_prefixes, start=1):
-        suffix = f" #{index}" if len(result.added_prefixes) > 1 else ""
-        table.add_row(f"Prefix adicionado{suffix}", str(prefix))
+        label = Text(message("Prefix adicionado"))
+        if len(result.added_prefixes) > 1:
+            label.append(" #")
+            label.append(str(index))
+        table.add_row(label, Text(str(prefix)))
 
     if result.backup_path is not None:
-        table.add_row("Backup", str(result.backup_path))
+        table.add_row(Text(message("Backup")), Text(str(result.backup_path)))
 
     if result.partial:
-        table.add_row("Parcial", "[yellow]Sim[/yellow]")
+        table.add_row(
+            Text(message("Parcial")),
+            Text(message("Sim"), style="yellow"),
+        )
 
     table.add_row(
-        "Rollback executado",
-        "[yellow]Sim[/yellow]" if result.rolled_back else "Não",
+        Text(message("Rollback executado")),
+        Text(
+            message("Sim" if result.rolled_back else "Não"),
+            style="yellow" if result.rolled_back else None,
+        ),
     )
     console.print(
         Panel(
             table,
-            title="Resultado do reparo Sentinel",
+            title=Text(message("Resultado do reparo Sentinel")),
             border_style=style,
             box=box.ROUNDED,
         )
@@ -2324,21 +2392,36 @@ def show_sentinel_config_write_result(
 
     if result.status is SentinelConfigWriteStatus.ROLLED_BACK:
         console.print(
-            "[yellow]A operação falhou, mas a configuração original "
-            "foi restaurada pelo rollback.[/yellow]"
+            Text(
+                message(
+                    "A operação falhou, mas a configuração original foi "
+                    "restaurada pelo rollback."
+                ),
+                style="yellow",
+            )
         )
     elif (
         result.status is SentinelConfigWriteStatus.FAILED
         and result.reason is SentinelConfigWriteReason.ROLLBACK_FAILED
     ):
         console.print(
-            "[red]Falha crítica: o rollback FALHOU e a restauração do "
-            "original não pôde ser confirmada.[/red]"
+            Text(
+                message(
+                    "Falha crítica: o rollback FALHOU e a restauração do "
+                    "original não pôde ser confirmada."
+                ),
+                style="red",
+            )
         )
     elif result.status is SentinelConfigWriteStatus.CONFLICT:
         console.print(
-            "[red]CONFLICT: a configuração mudou durante a operação; "
-            "nenhuma alteração concorrente foi sobrescrita.[/red]"
+            Text(
+                message(
+                    "CONFLICT: a configuração mudou durante a operação; "
+                    "nenhuma alteração concorrente foi sobrescrita."
+                ),
+                style="red",
+            )
         )
 
 
@@ -2778,27 +2861,43 @@ def show_game_sentinel_integration_status(
 
 def repair_game_sentinel_integration(
     game: Game,
+    *,
+    translations: Translations | None = None,
 ) -> None:
     clear_screen()
     render_header()
 
+    if translations is None:
+        translations = load_translations()
+
+    def message(text: str) -> str:
+        return translations.gettext(text)
+
     try:
         plan = resolve_game_sentinel_repair(game)
     except Exception as error:  # noqa: BLE001 - user-facing boundary
+        error_message = Text()
+        error_message.append(
+            message("Não foi possível resolver o reparo do Sentinel."),
+            style="red",
+        )
+        error_message.append("\n\n")
+        error_message.append(str(error))
         console.print(
             Panel.fit(
-                f"[red]Não foi possível resolver o reparo do Sentinel.[/red]\n\n{error}",
+                error_message,
                 border_style="red",
                 box=box.ROUNDED,
             )
         )
-        pause()
+        pause(message("Pressione Enter para continuar..."))
         return
 
     _show_sentinel_repair_plan(
         game,
         plan,
         title="Sentinel • Plano de reparo",
+        translations=translations,
     )
 
     if not plan.config_valid:
@@ -2813,18 +2912,23 @@ def repair_game_sentinel_integration(
                 "O schema da configuração do Sentinel é inválido."
             ),
         }
-        console.print(f"[yellow]{config_messages[plan.config_state]}[/yellow]")
-        console.print("[yellow]Nenhuma alteração foi realizada.[/yellow]")
-        pause()
+        console.print(Text(message(config_messages[plan.config_state]), style="yellow"))
+        console.print(Text(message("Nenhuma alteração foi realizada."), style="yellow"))
+        pause(message("Pressione Enter para continuar..."))
         return
 
     if not plan.gse_enabled:
         console.print(
-            "[yellow]O emulator GSE está desabilitado. Esta versão não o "
-            "habilita automaticamente.[/yellow]"
+            Text(
+                message(
+                    "O emulator GSE está desabilitado. Esta versão não o "
+                    "habilita automaticamente."
+                ),
+                style="yellow",
+            )
         )
-        console.print("[yellow]Nenhuma alteração foi realizada.[/yellow]")
-        pause()
+        console.print(Text(message("Nenhuma alteração foi realizada."), style="yellow"))
+        pause(message("Pressione Enter para continuar..."))
         return
 
     save_resolution = plan.coverage.save_resolution
@@ -2835,76 +2939,117 @@ def repair_game_sentinel_integration(
             if save_resolution is not None and save_resolution.ambiguous
             else "O save GSE efetivo não pôde ser resolvido com segurança."
         )
-        console.print(f"[yellow]{unresolved_message}[/yellow]")
-        console.print("[yellow]Nenhuma correção automática será proposta.[/yellow]")
-        pause()
+        console.print(Text(message(unresolved_message), style="yellow"))
+        console.print(
+            Text(
+                message("Nenhuma correção automática será proposta."),
+                style="yellow",
+            )
+        )
+        pause(message("Pressione Enter para continuar..."))
         return
 
     if not plan.needs_repair:
-        console.print("[green]Nenhuma correção é necessária.[/green]")
-        pause()
+        console.print(Text(message("Nenhuma correção é necessária."), style="green"))
+        pause(message("Pressione Enter para continuar..."))
         return
 
     if not plan.has_safe_prefix_additions:
         console.print(
-            "[yellow]Não existe candidate prefix seguro que esta versão "
-            "possa adicionar.[/yellow]"
+            Text(
+                message(
+                    "Não existe candidate prefix seguro que esta versão "
+                    "possa adicionar."
+                ),
+                style="yellow",
+            )
         )
         if plan.requires_gse_change:
             console.print(
-                "[yellow]É necessária uma mudança na configuração de saves "
-                "do GSE; ela não será feita automaticamente.[/yellow]"
+                Text(
+                    message(
+                        "É necessária uma mudança na configuração de saves do GSE; "
+                        "ela não será feita automaticamente."
+                    ),
+                    style="yellow",
+                )
             )
-        pause()
+        pause(message("Pressione Enter para continuar..."))
         return
 
     partial = plan.partially_repairable_via_sentinel_config
 
     if not plan.fully_repairable_via_sentinel_config and not partial:
         console.print(
-            "[yellow]O planner não produziu um reparo representável com "
-            "segurança. Nenhuma alteração foi realizada.[/yellow]"
+            Text(
+                message(
+                    "O planner não produziu um reparo representável com segurança. "
+                    "Nenhuma alteração foi realizada."
+                ),
+                style="yellow",
+            )
         )
-        pause()
+        pause(message("Pressione Enter para continuar..."))
         return
 
     console.print()
 
     if partial:
-        console.print("[bold yellow]Esta correção é PARCIAL.[/bold yellow]")
+        console.print(Text(message("Esta correção é PARCIAL."), style="bold yellow"))
         console.print(
-            "[yellow]As locations classificadas como não suportadas "
-            "continuarão sem cobertura.[/yellow]"
+            Text(
+                message(
+                    "As locations classificadas como não suportadas continuarão "
+                    "sem cobertura."
+                ),
+                style="yellow",
+            )
         )
         if plan.requires_gse_change:
             console.print(
-                "[yellow]Uma correção completa também requer mudança no GSE.[/yellow]"
+                Text(
+                    message("Uma correção completa também requer mudança no GSE."),
+                    style="yellow",
+                )
             )
     else:
         console.print(
-            "[bold green]Esta correção pode ser feita no Sentinel.[/bold green]"
+            Text(
+                message("Esta correção pode ser feita no Sentinel."),
+                style="bold green",
+            )
         )
 
     confirmation = Table.grid(padding=(0, 2))
     confirmation.add_column(style="bold cyan", no_wrap=True)
     confirmation.add_column(style="white")
-    confirmation.add_row("Config", str(plan.coverage.sentinel_status.path))
     confirmation.add_row(
-        "Será adicionado",
-        "\n".join(str(prefix) for prefix in plan.candidate_prefixes),
+        Text(message("Configuração")),
+        Text(str(plan.coverage.sentinel_status.path)),
+    )
+    confirmation.add_row(
+        Text(message("Será adicionado")),
+        Text("\n").join(Text(str(prefix)) for prefix in plan.candidate_prefixes),
     )
     console.print(
         Panel(
             confirmation,
-            title="Alteração proposta",
+            title=Text(message("Alteração proposta")),
             border_style="yellow" if partial else "cyan",
             box=box.ROUNDED,
         )
     )
-    console.print("[dim]Nenhum prefix existente será removido.[/dim]")
-    console.print("[dim]Nenhuma configuração GSE será modificada.[/dim]")
-    console.print("[dim]Um backup será criado automaticamente.[/dim]")
-    console.print("[dim]Somente a lista prefixes do Sentinel será alterada.[/dim]")
+    console.print(Text(message("Nenhum prefix existente será removido."), style="dim"))
+    console.print(
+        Text(message("Nenhuma configuração GSE será modificada."), style="dim")
+    )
+    console.print(Text(message("Um backup será criado automaticamente."), style="dim"))
+    console.print(
+        Text(
+            message("Somente a lista prefixes do Sentinel será alterada."),
+            style="dim",
+        )
+    )
 
     confirmation_message = (
         "Aplicar esta correção parcial do Sentinel?"
@@ -2912,15 +3057,18 @@ def repair_game_sentinel_integration(
         else "Aplicar esta correção do Sentinel?"
     )
     confirmed = questionary.confirm(
-        confirmation_message,
+        message(confirmation_message),
         default=False,
     ).ask()
 
     if not confirmed:
         console.print(
-            "[yellow]Correção cancelada. Nenhuma alteração foi realizada.[/yellow]"
+            Text(
+                message("Correção cancelada. Nenhuma alteração foi realizada."),
+                style="yellow",
+            )
         )
-        pause()
+        pause(message("Pressione Enter para continuar..."))
         return
 
     outcome = apply_game_sentinel_repair(
@@ -2930,25 +3078,31 @@ def repair_game_sentinel_integration(
     )
     result = outcome.write_result
     console.print()
-    show_sentinel_config_write_result(result)
+    show_sentinel_config_write_result(result, translations=translations)
 
     if result.status is SentinelConfigWriteStatus.APPLIED:
         console.print()
 
         if outcome.post_resolution_error is not None:
-            console.print(
-                "[yellow]A alteração foi aplicada, mas não foi possível "
-                "reconsultar a integração: "
-                f"{outcome.post_resolution_error}[/yellow]"
+            warning = Text(
+                message(
+                    "A alteração foi aplicada, mas não foi possível reconsultar "
+                    "a integração:"
+                ),
+                style="yellow",
             )
+            warning.append(" ", style="yellow")
+            warning.append(str(outcome.post_resolution_error), style="yellow")
+            console.print(warning)
         elif outcome.post_plan is not None:
             _show_sentinel_repair_plan(
                 game,
                 outcome.post_plan,
                 title="Sentinel • Estado pós-operação",
+                translations=translations,
             )
 
-    pause()
+    pause(message("Pressione Enter para continuar..."))
 
 
 def show_settings(config: AppConfig) -> None:

@@ -1030,7 +1030,27 @@ def show_games(
     )
 
 
-def show_sentinel_status() -> None:
+def show_sentinel_status(
+    *,
+    translations: Translations | None = None,
+) -> None:
+    if translations is None:
+        translations = load_translations()
+
+    def message(text: str, **values: object) -> str:
+        translated = translations.gettext(text)
+        return translated.format(**values) if values else translated
+
+    def status_text(
+        symbol: str,
+        text: str,
+        style: str,
+        **values: object,
+    ) -> Text:
+        status_value = Text()
+        status_value.append(f"{symbol} {message(text, **values)}", style=style)
+        return status_value
+
     installation = detect_sentinel()
 
     status = read_sentinel_config(
@@ -1045,76 +1065,84 @@ def show_sentinel_status() -> None:
     )
     table.add_column(style="white")
 
+    if installation.installed:
+        installation_status = status_text("✓", "Detectado", "green")
+        installation_status.append(" • ")
+        installation_status.append(str(installation.executable))
+    else:
+        installation_status = status_text("⚠", "Não detectado", "yellow")
+
     table.add_row(
-        "Instalação",
-        (
-            f"[green]✓ Detectado[/green] • {installation.executable}"
-            if installation.installed
-            else "[yellow]⚠ Não detectado[/yellow]"
-        ),
+        Text(message("Instalação")),
+        installation_status,
     )
 
     if not status.exists:
-        config_status = "[yellow]⚠ Não encontrada[/yellow]"
+        config_status = status_text("⚠", "Não encontrada", "yellow")
     elif not status.valid_json:
-        config_status = "[red]✗ JSON inválido[/red]"
+        config_status = status_text("✗", "JSON inválido", "red")
     elif not status.schema_valid:
-        config_status = "[red]✗ Schema não reconhecido[/red]"
+        config_status = status_text("✗", "Schema não reconhecido", "red")
     else:
-        config_status = "[green]✓ Válida[/green]"
+        config_status = status_text("✓", "Válida", "green")
 
     table.add_row(
-        "Configuração",
+        Text(message("Configuração")),
         config_status,
     )
 
     table.add_row(
-        "Arquivo",
-        str(installation.config_path),
+        Text(message("Arquivo")),
+        Text(str(installation.config_path)),
     )
 
     table.add_row(
-        "Dados",
+        Text(message("Dados")),
         (
-            "[green]✓ Encontrados[/green]"
+            status_text("✓", "Encontrados", "green")
             if installation.data_exists
-            else "[yellow]⚠ Não encontrados[/yellow]"
+            else status_text("⚠", "Não encontrados", "yellow")
         ),
     )
 
     table.add_row(
-        "Estado",
+        Text(message("Estado")),
         (
-            "[green]✓ Encontrado[/green]"
+            status_text("✓", "Encontrado", "green")
             if installation.state_exists
-            else "[yellow]⚠ Não encontrado[/yellow]"
+            else status_text("⚠", "Não encontrado", "yellow")
         ),
     )
 
     table.add_row(
-        "Prefixos",
+        Text(message("Prefixos")),
         (
-            f"[green]✓ {len(status.prefix_paths)} configurados[/green]"
+            status_text(
+                "✓",
+                "{count} configurados",
+                "green",
+                count=len(status.prefix_paths),
+            )
             if status.prefix_paths
-            else "[yellow]⚠ Nenhum configurado[/yellow]"
+            else status_text("⚠", "Nenhum configurado", "yellow")
         ),
     )
 
     table.add_row(
-        "GSE",
+        Text("GSE"),
         (
-            "[green]✓ Habilitado[/green]"
+            status_text("✓", "Habilitado", "green")
             if status.gse_enabled
-            else "[yellow]⚠ Não habilitado[/yellow]"
+            else status_text("⚠", "Não habilitado", "yellow")
         ),
     )
 
     table.add_row(
-        "Goldberg legado",
+        Text(message("Goldberg legado")),
         (
-            "[green]✓ Habilitado[/green]"
+            status_text("✓", "Habilitado", "green")
             if status.goldberg_enabled
-            else "[dim]— Não habilitado[/dim]"
+            else status_text("—", "Não habilitado", "dim")
         ),
     )
 
@@ -1128,26 +1156,26 @@ def show_sentinel_status() -> None:
     )
 
     if gse_notifications is True:
-        notification_status = "[green]✓ Habilitadas[/green]"
+        notification_status = status_text("✓", "Habilitadas", "green")
     elif gse_notifications is False:
-        notification_status = "[yellow]⚠ Desabilitadas[/yellow]"
+        notification_status = status_text("⚠", "Desabilitadas", "yellow")
     else:
-        notification_status = "[dim]— GSE não configurado[/dim]"
+        notification_status = status_text("—", "GSE não configurado", "dim")
 
     table.add_row(
-        "Notificações GSE",
+        Text(message("Notificações GSE")),
         notification_status,
     )
 
     if status.gse_watcher_configured:
-        watcher_status = "[green]✓ Pronto para GSE[/green]"
+        watcher_status = status_text("✓", "Pronto para GSE", "green")
     elif status.watcher_configured:
-        watcher_status = "[yellow]⚠ Configurado sem GSE[/yellow]"
+        watcher_status = status_text("⚠", "Configurado sem GSE", "yellow")
     else:
-        watcher_status = "[yellow]⚠ Não configurado[/yellow]"
+        watcher_status = status_text("⚠", "Não configurado", "yellow")
 
     table.add_row(
-        "Watcher (config)",
+        Text("Watcher (config)"),
         watcher_status,
     )
 
@@ -1158,26 +1186,33 @@ def show_sentinel_status() -> None:
     )
 
     if len(gse_save_roots) == 1:
-        gse_saves_status = f"[green]✓ Encontrado[/green] • {gse_save_roots[0].path}"
+        gse_saves_status = status_text("✓", "Encontrado", "green")
+        gse_saves_status.append(" • ")
+        gse_saves_status.append(str(gse_save_roots[0].path))
 
     elif len(gse_save_roots) > 1:
-        gse_saves_status = f"[green]✓ {len(gse_save_roots)} encontrados[/green]"
+        gse_saves_status = status_text(
+            "✓",
+            "{count} encontrados",
+            "green",
+            count=len(gse_save_roots),
+        )
 
     elif status.gse_enabled:
-        gse_saves_status = "[yellow]⚠ Não encontrado[/yellow]"
+        gse_saves_status = status_text("⚠", "Não encontrado", "yellow")
 
     else:
-        gse_saves_status = "[dim]— GSE não configurado[/dim]"
+        gse_saves_status = status_text("—", "GSE não configurado", "dim")
 
     table.add_row(
-        "GSE Saves",
+        Text("GSE Saves"),
         gse_saves_status,
     )
 
     console.print(
         Panel(
             table,
-            title="Sentinel",
+            title=Text("Sentinel"),
             border_style=(
                 "green"
                 if installation.installed and status.gse_watcher_configured
@@ -1188,9 +1223,13 @@ def show_sentinel_status() -> None:
     )
 
     console.print(
-        "[dim]Somente leitura • "
-        "nenhuma configuração do Sentinel foi alterada • "
-        "o estado acima não confirma se o processo está em execução.[/dim]"
+        Text(
+            message(
+                "Somente leitura • nenhuma configuração do Sentinel foi alterada • "
+                "o estado acima não confirma se o processo está em execução."
+            ),
+            style="dim",
+        )
     )
 
 

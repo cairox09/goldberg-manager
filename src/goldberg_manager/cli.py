@@ -5493,7 +5493,22 @@ def guided_configuration_menu(
 
 def show_emu_config_summary(
     summary: EmuConfigSummary,
+    *,
+    translations: Translations | None = None,
 ) -> None:
+    if translations is None:
+        translations = load_translations()
+
+    def message(text: str) -> str:
+        return translations.gettext(text)
+
+    def status_text(symbol: str, value: str, style: str) -> Text:
+        status = Text()
+        status.append(symbol, style=style)
+        status.append(" ", style=style)
+        status.append(value, style=style)
+        return status
+
     table = Table.grid(padding=(0, 2))
 
     table.add_column(
@@ -5506,78 +5521,78 @@ def show_emu_config_summary(
     )
 
     table.add_row(
-        "Steam AppID",
-        str(summary.app_id),
+        Text("Steam AppID"),
+        Text(str(summary.app_id)),
     )
 
     table.add_row(
-        "Achievements",
+        Text(message("Achievements")),
         (
-            f"[green]✓ {summary.achievements_count}[/green]"
+            status_text("✓", str(summary.achievements_count), "green")
             if summary.has_achievements
-            else "[yellow]⚠ Não encontrados[/yellow]"
+            else status_text("⚠", message("Não encontrados"), "yellow")
         ),
     )
 
     table.add_row(
-        "Imagens",
+        Text(message("Imagens")),
         (
-            f"[green]✓ {summary.achievement_images_count}[/green]"
+            status_text("✓", str(summary.achievement_images_count), "green")
             if summary.has_achievement_images
-            else "[yellow]⚠ Nenhuma[/yellow]"
+            else status_text("⚠", message("Nenhuma"), "yellow")
         ),
     )
 
     table.add_row(
-        "Idiomas",
-        str(summary.supported_languages_count),
+        Text(message("Idiomas")),
+        Text(str(summary.supported_languages_count)),
     )
 
     table.add_row(
-        "DLCs",
-        str(summary.dlc_count),
+        Text(message("DLCs")),
+        Text(str(summary.dlc_count)),
     )
 
     table.add_row(
-        "Depots",
-        str(summary.depots_count),
+        Text(message("Depots")),
+        Text(str(summary.depots_count)),
     )
 
     table.add_row(
-        "Branches",
-        str(summary.branches_count),
+        Text(message("Branches")),
+        Text(str(summary.branches_count)),
     )
 
     table.add_row(
-        "Product info",
+        Text(message("Product info")),
         (
-            "[green]✓ Sim[/green]"
+            status_text("✓", message("Sim"), "green")
             if summary.has_product_info
-            else "[yellow]⚠ Não[/yellow]"
+            else status_text("⚠", message("Não"), "yellow")
         ),
     )
 
     table.add_row(
-        "App details",
+        Text(message("App details")),
         (
-            "[green]✓ Sim[/green]"
+            status_text("✓", message("Sim"), "green")
             if summary.has_app_details
-            else "[yellow]⚠ Não[/yellow]"
+            else status_text("⚠", message("Não"), "yellow")
         ),
     )
 
     console.print(
         Panel(
             table,
-            title="Dados gerados pelo GSE",
+            title=Text(message("Dados gerados pelo GSE")),
             border_style="green",
             box=box.ROUNDED,
         )
     )
 
     console.print()
-    console.print("[dim]Output:[/dim]")
-    console.print(f"[dim]{summary.output_directory}[/dim]")
+    console.print(Text(message("Output:"), style="dim"))
+    console.print(Text(str(summary.output_directory), style="dim"))
 
 
 def generate_emu_config_menu(

@@ -1087,3 +1087,65 @@ msgstr "Post-write validation and rollback failed."
 
 msgid "Prefixes do Sentinel atualizados com segurança."
 msgstr "Sentinel prefixes were updated safely."
+
+msgid "JSON inválido"
+msgstr "Invalid JSON"
+
+msgid "Schema não reconhecido"
+msgstr "Unrecognized schema"
+
+msgid "Arquivo"
+msgstr "File"
+
+msgid "Dados"
+msgstr "Data"
+
+msgid "Encontrados"
+msgstr "Found"
+
+msgid "Não encontrados"
+msgstr "Not found"
+
+msgid "Estado"
+msgstr "State"
+
+msgid "Não encontrado"
+msgstr "Not found"
+
+msgid "Prefixos"
+msgstr "Prefixes"
+
+#, python-brace-format
+msgid "{count} configurados"
+msgstr "{count} configured"
+
+msgid "Nenhum configurado"
+msgstr "None configured"
+
+msgid "Habilitado"
+msgstr "Enabled"
+
+msgid "Não habilitado"
+msgstr "Not enabled"
+
+msgid "Goldberg legado"
+msgstr "Legacy Goldberg"
+
+msgid "GSE não configurado"
+msgstr "GSE not configured"
+
+msgid "Pronto para GSE"
+msgstr "Ready for GSE"
+
+msgid "Configurado sem GSE"
+msgstr "Configured without GSE"
+
+msgid "Não configurado"
+msgstr "Not configured"
+
+#, python-brace-format
+msgid "{count} encontrados"
+msgstr "{count} found"
+
+msgid "Somente leitura • nenhuma configuração do Sentinel foi alterada • o estado acima não confirma se o processo está em execução."
+msgstr "Read-only • no Sentinel configuration was changed • the status above does not confirm whether the process is running."

@@ -5598,14 +5598,23 @@ def show_emu_config_summary(
 def generate_emu_config_menu(
     config: AppConfig,
     game: Game | None = None,
+    *,
+    translations: Translations | None = None,
 ) -> None:
     clear_screen()
     render_header()
+
+    if translations is None:
+        translations = load_translations()
+
+    def message(text: str) -> str:
+        return translations.gettext(text)
 
     game = get_menu_game(
         config,
         game,
         ("Selecione o jogo para gerar dados Steam / achievements:"),
+        translations=translations,
     )
 
     if game is None:
@@ -5614,59 +5623,85 @@ def generate_emu_config_menu(
     generator = config.goldberg.emu_config_generator
 
     if generator is None or not generator.is_file():
+        missing_generator = Text()
+        missing_generator.append(
+            message("generate_emu_config não está configurado ou não foi encontrado."),
+            style="yellow",
+        )
+        missing_generator.append("\n\n")
+        missing_generator.append(
+            message("Entre em Configurações e use 'Detectar generate_emu_config'.")
+        )
         console.print(
             Panel.fit(
-                "[yellow]generate_emu_config "
-                "não está configurado ou "
-                "não foi encontrado.[/yellow]\n\n"
-                "Entre em Configurações e use "
-                "'Detectar generate_emu_config'.",
+                missing_generator,
                 border_style="yellow",
                 box=box.ROUNDED,
             )
         )
 
-        pause()
+        pause(message("Pressione Enter para continuar..."))
         return
 
     try:
         snapshot = read_game_steam_settings(game)
     except (OSError, ValueError) as exc:
-        console.print(f"[red]Não foi possível ler steam_settings:[/red] {exc}")
-        pause()
+        error_message = Text()
+        error_message.append(
+            message("Não foi possível ler steam_settings:"),
+            style="red",
+        )
+        error_message.append(" ")
+        error_message.append(str(exc))
+        console.print(error_message)
+        pause(message("Pressione Enter para continuar..."))
         return
 
     if snapshot.app_id is None:
+        missing_app_id = Text()
+        missing_app_id.append(
+            message("Este jogo ainda não possui um Steam AppID configurado."),
+            style="yellow",
+        )
+        missing_app_id.append("\n\n")
+        missing_app_id.append(
+            message("Configure primeiro o AppID pelo Assistente."),
+        )
         console.print(
             Panel.fit(
-                "[yellow]Este jogo ainda não "
-                "possui um Steam AppID "
-                "configurado.[/yellow]\n\n"
-                "Configure primeiro o AppID "
-                "pelo Assistente.",
+                missing_app_id,
                 border_style="yellow",
                 box=box.ROUNDED,
             )
         )
 
-        pause()
+        pause(message("Pressione Enter para continuar..."))
         return
 
     app_id = snapshot.app_id
 
     mode = questionary.select(
-        "Como deseja acessar os dados Steam?",
+        message("Como deseja acessar os dados Steam?"),
         choices=[
-            ("Autenticado (recomendado para achievements)"),
-            "Anônimo",
-            "Cancelar",
+            questionary.Choice(
+                title=message("Autenticado (recomendado para achievements)"),
+                value="authenticated",
+            ),
+            questionary.Choice(
+                title=message("Anônimo"),
+                value="anonymous",
+            ),
+            questionary.Choice(
+                title=message("Cancelar"),
+                value="cancel",
+            ),
         ],
     ).ask()
 
-    if mode is None or mode == "Cancelar":
+    if mode not in {"authenticated", "anonymous"}:
         return
 
-    anonymous = mode == "Anônimo"
+    anonymous = mode == "anonymous"
 
     console.print()
 
@@ -5682,29 +5717,29 @@ def generate_emu_config_menu(
     )
 
     table.add_row(
-        "Jogo",
-        game.name,
+        Text(message("Jogo")),
+        Text(str(game.name)),
     )
 
     table.add_row(
-        "Steam AppID",
-        str(app_id),
+        Text("Steam AppID"),
+        Text(str(app_id)),
     )
 
     table.add_row(
-        "Generator",
-        str(generator),
+        Text("Generator"),
+        Text(str(generator)),
     )
 
     table.add_row(
-        "Modo",
-        ("Anônimo" if anonymous else "Autenticado"),
+        Text(message("Modo")),
+        Text(message("Anônimo" if anonymous else "Autenticado")),
     )
 
     console.print(
         Panel(
             table,
-            title="Geração de dados Steam",
+            title=Text(message("Geração de dados Steam")),
             border_style="cyan",
             box=box.ROUNDED,
         )
@@ -5712,25 +5747,42 @@ def generate_emu_config_menu(
 
     console.print()
 
-    console.print("[yellow]O diretório _OUTPUT deste AppID será recriado.[/yellow]")
+    console.print(
+        Text(
+            message("O diretório _OUTPUT deste AppID será recriado."),
+            style="yellow",
+        )
+    )
 
-    console.print("[dim]Nenhum arquivo do jogo será alterado nesta etapa.[/dim]")
+    console.print(
+        Text(
+            message("Nenhum arquivo do jogo será alterado nesta etapa."),
+            style="dim",
+        )
+    )
 
     if not anonymous:
         console.print()
         console.print(
-            "[cyan]O generate_emu_config "
-            "poderá solicitar login, senha "
-            "e Steam Guard diretamente "
-            "no terminal.[/cyan]"
+            Text(
+                message(
+                    "O generate_emu_config poderá solicitar login, senha e Steam "
+                    "Guard diretamente no terminal."
+                ),
+                style="cyan",
+            )
         )
-
-        console.print("[dim]O Goldberg Manager não salvará essas credenciais.[/dim]")
+        console.print(
+            Text(
+                message("O Goldberg Manager não salvará essas credenciais."),
+                style="dim",
+            )
+        )
 
     console.print()
 
     confirm = questionary.confirm(
-        "Executar generate_emu_config agora?",
+        message("Executar generate_emu_config agora?"),
         default=True,
     ).ask()
 
@@ -5738,7 +5790,12 @@ def generate_emu_config_menu(
         return
 
     console.print()
-    console.print("[bold cyan]Iniciando generate_emu_config...[/bold cyan]")
+    console.print(
+        Text(
+            message("Iniciando generate_emu_config..."),
+            style="bold cyan",
+        )
+    )
     console.print()
 
     try:
@@ -5762,23 +5819,36 @@ def generate_emu_config_menu(
         clear_screen()
         render_header()
 
+        error_message = Text()
+        error_message.append(
+            message("Falha ao gerar os dados Steam."),
+            style="red",
+        )
+        error_message.append("\n\n")
+        error_message.append(str(exc))
         console.print(
             Panel.fit(
-                f"[red]Falha ao gerar os dados Steam.[/red]\n\n{exc}",
+                error_message,
                 border_style="red",
                 box=box.ROUNDED,
             )
         )
 
-        pause()
+        pause(message("Pressione Enter para continuar..."))
         return
 
     clear_screen()
     render_header()
 
+    success_message = Text()
+    success_message.append("✓ ", style="bold green")
+    success_message.append(
+        message("Dados Steam gerados com sucesso!"),
+        style="bold green",
+    )
     console.print(
         Panel.fit(
-            "[bold green]✓ Dados Steam gerados com sucesso![/bold green]",
+            success_message,
             border_style="green",
             box=box.ROUNDED,
         )
@@ -5786,13 +5856,21 @@ def generate_emu_config_menu(
 
     console.print()
 
-    show_emu_config_summary(summary)
+    show_emu_config_summary(
+        summary,
+        translations=translations,
+    )
 
     console.print()
 
-    console.print("[dim]Os dados ainda não foram importados para o jogo.[/dim]")
+    console.print(
+        Text(
+            message("Os dados ainda não foram importados para o jogo."),
+            style="dim",
+        )
+    )
 
-    pause()
+    pause(message("Pressione Enter para continuar..."))
 
 
 def import_generated_achievements_menu(

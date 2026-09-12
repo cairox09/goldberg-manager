@@ -15,13 +15,19 @@ from rich.console import Console
 
 from goldberg_manager.application.guided_configuration import GameAssistantStatus
 from goldberg_manager.cli import (
+    create_settings_safety_backup,
     generate_emu_config_menu,
     goldberg_game_assistant_menu,
+    import_generated_achievements_menu,
     show_emu_config_summary,
 )
 from goldberg_manager.config import AppConfig, GoldbergConfig
 from goldberg_manager.core.game import Game
-from goldberg_manager.emu_config import EmuConfigError, EmuConfigSummary
+from goldberg_manager.emu_config import (
+    AchievementsImportResult,
+    EmuConfigError,
+    EmuConfigSummary,
+)
 from goldberg_manager.presentation.i18n import load_translations
 
 
@@ -108,6 +114,61 @@ GENERATION_UNRELATED_MUTATIONS = (
     "update_game_steam_appid",
     "update_user_setting",
 )
+
+IMPORT_UNRELATED_MUTATIONS = (
+    "apply_game_sentinel_repair",
+    "backup_game",
+    "create_steam_settings_backup",
+    "generate_game_steam_interfaces",
+    "generate_game_steam_settings",
+    "restore_game_backup",
+    "restore_steam_settings_backup",
+    "run_generate_emu_config",
+    "save_appid_search_cache",
+    "save_config",
+    "search_game_on_steam",
+    "update_game_steam_appid",
+    "update_user_setting",
+)
+
+
+def make_import_environment(
+    root: Path,
+) -> tuple[AppConfig, Game, EmuConfigSummary]:
+    generator = root / "gse" / "generate_emu_config"
+    generator.parent.mkdir(parents=True)
+    generator.write_text("", encoding="utf-8")
+    game = make_game(root / "game")
+    return (
+        make_generation_config(generator),
+        game,
+        make_summary(output_directory=generator.parent / "_OUTPUT" / "2353060"),
+    )
+
+
+def make_import_result(
+    destination: Path,
+    *,
+    achievements_count: int = 12,
+    images_count: int = 9,
+    write_achievements: bool = True,
+) -> AchievementsImportResult:
+    destination.mkdir(parents=True, exist_ok=True)
+    achievements_file = destination / "achievements.json"
+    if write_achievements:
+        achievements_file.write_text("[]", encoding="utf-8")
+
+    images_directory = destination / "img" if images_count else None
+    if images_directory is not None:
+        images_directory.mkdir(exist_ok=True)
+
+    return AchievementsImportResult(
+        destination_directory=destination,
+        achievements_file=achievements_file,
+        images_directory=images_directory,
+        achievements_count=achievements_count,
+        images_count=images_count,
+    )
 
 
 def render_summary(
@@ -1369,6 +1430,1180 @@ class EmuConfigGenerationCliTests(unittest.TestCase):
             game=game,
         )
         self.assertEqual(generation.call_args.kwargs, {"game": game})
+
+
+class EmuConfigImportCliTests(unittest.TestCase):
+    def test_default_invocation_loads_once_and_selection_cancellation_is_isolated(
+        self,
+    ) -> None:
+        config = make_generation_config()
+        translations = RecordingTranslations()
+
+        with ExitStack() as stack:
+            loader = stack.enter_context(
+                patch(
+                    "goldberg_manager.cli.load_translations",
+                    return_value=translations,
+                )
+            )
+            get_game = stack.enter_context(
+                patch("goldberg_manager.cli.get_menu_game", return_value=None)
+            )
+            settings_reader = stack.enter_context(
+                patch("goldberg_manager.cli.read_game_steam_settings")
+            )
+            summary_reader = stack.enter_context(
+                patch("goldberg_manager.cli.read_generated_emu_summary")
+            )
+            summary_renderer = stack.enter_context(
+                patch("goldberg_manager.cli.show_emu_config_summary")
+            )
+            confirm = stack.enter_context(
+                patch("goldberg_manager.cli.questionary.confirm")
+            )
+            safety_backup = stack.enter_context(
+                patch("goldberg_manager.cli.create_settings_safety_backup")
+            )
+            importer = stack.enter_context(
+                patch("goldberg_manager.cli.import_generated_achievements")
+            )
+            pause = stack.enter_context(patch("goldberg_manager.cli.pause"))
+            stack.enter_context(patch("goldberg_manager.cli.console.print"))
+            stack.enter_context(patch("goldberg_manager.cli.clear_screen"))
+            stack.enter_context(patch("goldberg_manager.cli.render_header"))
+
+            import_generated_achievements_menu(config)
+
+        loader.assert_called_once_with()
+        get_game.assert_called_once_with(
+            config,
+            None,
+            "Selecione o jogo para importar achievements gerados:",
+            translations=translations,
+        )
+        self.assertIs(get_game.call_args.kwargs["translations"], translations)
+        settings_reader.assert_not_called()
+        summary_reader.assert_not_called()
+        summary_renderer.assert_not_called()
+        confirm.assert_not_called()
+        safety_backup.assert_not_called()
+        importer.assert_not_called()
+        pause.assert_not_called()
+
+    def test_explicit_english_and_positional_game_bypass_discovery(
+        self,
+    ) -> None:
+        game = make_game()
+        translations = load_translations("en")
+        output = StringIO()
+        test_console = Console(file=output, width=240, color_system=None)
+
+        with (
+            patch("goldberg_manager.cli.load_translations") as loader,
+            patch("goldberg_manager.cli.get_detected_games") as detect_games,
+            patch("goldberg_manager.cli.select_game") as select_game,
+            patch("goldberg_manager.cli.read_game_steam_settings") as settings_reader,
+            patch("goldberg_manager.cli.console", test_console),
+            patch("goldberg_manager.cli.pause") as pause,
+            patch("goldberg_manager.cli.clear_screen"),
+            patch("goldberg_manager.cli.render_header"),
+        ):
+            import_generated_achievements_menu(
+                make_generation_config(None),
+                game,
+                translations=translations,
+            )
+
+        loader.assert_not_called()
+        detect_games.assert_not_called()
+        select_game.assert_not_called()
+        settings_reader.assert_not_called()
+        pause.assert_called_once_with("Press Enter to continue...")
+        self.assertIn(
+            "generate_emu_config is not configured or could not be found.",
+            output.getvalue(),
+        )
+        self.assertIn(
+            "Go to Settings and use 'Detect generate_emu_config'.",
+            output.getvalue(),
+        )
+
+    def test_handled_settings_read_errors_stop_before_generated_data(self) -> None:
+        translations = load_translations("en")
+
+        for error in (
+            OSError("unreadable [red]settings[/red]"),
+            ValueError("invalid [bold]settings[/bold]"),
+        ):
+            with self.subTest(error_type=type(error).__name__):
+                with tempfile.TemporaryDirectory() as temp_directory:
+                    config, game, _ = make_import_environment(Path(temp_directory))
+                    output = StringIO()
+                    test_console = Console(
+                        file=output,
+                        width=240,
+                        color_system=None,
+                    )
+
+                    with (
+                        patch("goldberg_manager.cli.get_menu_game", return_value=game),
+                        patch(
+                            "goldberg_manager.cli.read_game_steam_settings",
+                            side_effect=error,
+                        ) as settings_reader,
+                        patch(
+                            "goldberg_manager.cli.read_generated_emu_summary"
+                        ) as summary_reader,
+                        patch(
+                            "goldberg_manager.cli.create_settings_safety_backup"
+                        ) as safety_backup,
+                        patch(
+                            "goldberg_manager.cli.import_generated_achievements"
+                        ) as importer,
+                        patch("goldberg_manager.cli.console", test_console),
+                        patch("goldberg_manager.cli.pause") as pause,
+                        patch("goldberg_manager.cli.clear_screen"),
+                        patch("goldberg_manager.cli.render_header"),
+                    ):
+                        import_generated_achievements_menu(
+                            config,
+                            translations=translations,
+                        )
+
+                settings_reader.assert_called_once_with(game)
+                summary_reader.assert_not_called()
+                safety_backup.assert_not_called()
+                importer.assert_not_called()
+                pause.assert_called_once_with("Press Enter to continue...")
+                self.assertIn("Could not read steam_settings:", output.getvalue())
+                self.assertIn(str(error), output.getvalue())
+
+    def test_unexpected_settings_reader_error_propagates_without_pause(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            config, game, _ = make_import_environment(Path(temp_directory))
+            error = LookupError("unexpected settings reader")
+
+            with (
+                patch("goldberg_manager.cli.get_menu_game", return_value=game),
+                patch(
+                    "goldberg_manager.cli.read_game_steam_settings",
+                    side_effect=error,
+                ),
+                patch(
+                    "goldberg_manager.cli.read_generated_emu_summary"
+                ) as summary_reader,
+                patch("goldberg_manager.cli.pause") as pause,
+                patch("goldberg_manager.cli.clear_screen"),
+                patch("goldberg_manager.cli.render_header"),
+                self.assertRaises(LookupError) as raised,
+            ):
+                import_generated_achievements_menu(
+                    config,
+                    translations=RecordingTranslations(),
+                )
+
+        self.assertIs(raised.exception, error)
+        summary_reader.assert_not_called()
+        pause.assert_not_called()
+
+    def test_missing_appid_stops_before_generated_data(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            config, game, _ = make_import_environment(Path(temp_directory))
+            output = StringIO()
+            test_console = Console(file=output, width=240, color_system=None)
+
+            with (
+                patch("goldberg_manager.cli.get_menu_game", return_value=game),
+                patch(
+                    "goldberg_manager.cli.read_game_steam_settings",
+                    return_value=SimpleNamespace(app_id=None),
+                ) as settings_reader,
+                patch(
+                    "goldberg_manager.cli.read_generated_emu_summary"
+                ) as summary_reader,
+                patch(
+                    "goldberg_manager.cli.create_settings_safety_backup"
+                ) as safety_backup,
+                patch("goldberg_manager.cli.import_generated_achievements") as importer,
+                patch("goldberg_manager.cli.console", test_console),
+                patch("goldberg_manager.cli.pause") as pause,
+                patch("goldberg_manager.cli.clear_screen"),
+                patch("goldberg_manager.cli.render_header"),
+            ):
+                import_generated_achievements_menu(
+                    config,
+                    translations=load_translations("en"),
+                )
+
+        settings_reader.assert_called_once_with(game)
+        summary_reader.assert_not_called()
+        safety_backup.assert_not_called()
+        importer.assert_not_called()
+        pause.assert_called_once_with("Press Enter to continue...")
+        self.assertIn(
+            "This game does not yet have a configured Steam AppID.",
+            output.getvalue(),
+        )
+        self.assertIn(
+            "Configure the AppID through the Assistant first.",
+            output.getvalue(),
+        )
+
+    def test_handled_generated_summary_errors_are_literal_without_mutation(
+        self,
+    ) -> None:
+        translations = load_translations("en")
+
+        for error in (
+            EmuConfigError("invalid [red]generated data[/red]"),
+            OSError("unreadable [bold]output[/bold]"),
+            ValueError("invalid [cyan]summary[/cyan]"),
+        ):
+            with self.subTest(error_type=type(error).__name__):
+                with tempfile.TemporaryDirectory() as temp_directory:
+                    config, game, _ = make_import_environment(Path(temp_directory))
+                    output = StringIO()
+                    test_console = Console(
+                        file=output,
+                        width=240,
+                        color_system=None,
+                    )
+
+                    with (
+                        patch("goldberg_manager.cli.get_menu_game", return_value=game),
+                        patch(
+                            "goldberg_manager.cli.read_game_steam_settings",
+                            return_value=SimpleNamespace(app_id=2353060),
+                        ),
+                        patch(
+                            "goldberg_manager.cli.read_generated_emu_summary",
+                            side_effect=error,
+                        ) as summary_reader,
+                        patch(
+                            "goldberg_manager.cli.show_emu_config_summary"
+                        ) as summary_renderer,
+                        patch(
+                            "goldberg_manager.cli.create_settings_safety_backup"
+                        ) as safety_backup,
+                        patch(
+                            "goldberg_manager.cli.import_generated_achievements"
+                        ) as importer,
+                        patch("goldberg_manager.cli.console", test_console),
+                        patch("goldberg_manager.cli.pause") as pause,
+                        patch("goldberg_manager.cli.clear_screen"),
+                        patch("goldberg_manager.cli.render_header"),
+                    ):
+                        import_generated_achievements_menu(
+                            config,
+                            translations=translations,
+                        )
+
+                summary_reader.assert_called_once_with(
+                    config.goldberg.emu_config_generator,
+                    2353060,
+                )
+                summary_renderer.assert_not_called()
+                safety_backup.assert_not_called()
+                importer.assert_not_called()
+                pause.assert_called_once_with("Press Enter to continue...")
+                self.assertIn(
+                    "Could not read the data generated by GSE.", output.getvalue()
+                )
+                self.assertIn(str(error), output.getvalue())
+
+    def test_unexpected_generated_summary_error_propagates(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            config, game, _ = make_import_environment(Path(temp_directory))
+            error = LookupError("unexpected generated summary")
+
+            with (
+                patch("goldberg_manager.cli.get_menu_game", return_value=game),
+                patch(
+                    "goldberg_manager.cli.read_game_steam_settings",
+                    return_value=SimpleNamespace(app_id=2353060),
+                ),
+                patch(
+                    "goldberg_manager.cli.read_generated_emu_summary",
+                    side_effect=error,
+                ),
+                patch("goldberg_manager.cli.pause") as pause,
+                patch("goldberg_manager.cli.clear_screen"),
+                patch("goldberg_manager.cli.render_header"),
+                self.assertRaises(LookupError) as raised,
+            ):
+                import_generated_achievements_menu(
+                    config,
+                    translations=RecordingTranslations(),
+                )
+
+        self.assertIs(raised.exception, error)
+        pause.assert_not_called()
+
+    def test_missing_generated_achievements_stops_before_preview_and_mutation(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            config, game, _ = make_import_environment(Path(temp_directory))
+            summary = make_summary(achievements_count=0)
+            output = StringIO()
+            test_console = Console(file=output, width=240, color_system=None)
+
+            with (
+                patch("goldberg_manager.cli.get_menu_game", return_value=game),
+                patch(
+                    "goldberg_manager.cli.read_game_steam_settings",
+                    return_value=SimpleNamespace(app_id=2353060),
+                ),
+                patch(
+                    "goldberg_manager.cli.read_generated_emu_summary",
+                    return_value=summary,
+                ),
+                patch("goldberg_manager.cli.show_emu_config_summary") as renderer,
+                patch("goldberg_manager.cli.questionary.confirm") as confirm,
+                patch(
+                    "goldberg_manager.cli.create_settings_safety_backup"
+                ) as safety_backup,
+                patch("goldberg_manager.cli.import_generated_achievements") as importer,
+                patch("goldberg_manager.cli.console", test_console),
+                patch("goldberg_manager.cli.pause") as pause,
+                patch("goldberg_manager.cli.clear_screen"),
+                patch("goldberg_manager.cli.render_header"),
+            ):
+                import_generated_achievements_menu(
+                    config,
+                    translations=load_translations("en"),
+                )
+
+        renderer.assert_not_called()
+        confirm.assert_not_called()
+        safety_backup.assert_not_called()
+        importer.assert_not_called()
+        pause.assert_called_once_with("Press Enter to continue...")
+        self.assertIn(
+            "No achievements were found in the output for this AppID.",
+            output.getvalue(),
+        )
+        self.assertIn(
+            "First use the 'Generate Steam data / achievements' option.",
+            output.getvalue(),
+        )
+
+    def test_default_portuguese_preview_propagates_identity_and_defaults_true(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            config, game, summary = make_import_environment(Path(temp_directory))
+            translations = RecordingTranslations()
+            output = StringIO()
+            test_console = Console(file=output, width=240, color_system=None)
+
+            with (
+                patch(
+                    "goldberg_manager.cli.load_translations",
+                    return_value=translations,
+                ) as loader,
+                patch(
+                    "goldberg_manager.cli.get_menu_game",
+                    return_value=game,
+                ) as get_game,
+                patch(
+                    "goldberg_manager.cli.read_game_steam_settings",
+                    return_value=SimpleNamespace(app_id=2353060),
+                ),
+                patch(
+                    "goldberg_manager.cli.read_generated_emu_summary",
+                    return_value=summary,
+                ),
+                patch(
+                    "goldberg_manager.cli.show_emu_config_summary"
+                ) as summary_renderer,
+                patch("goldberg_manager.cli.questionary.confirm") as confirm,
+                patch(
+                    "goldberg_manager.cli.create_settings_safety_backup"
+                ) as safety_backup,
+                patch("goldberg_manager.cli.import_generated_achievements") as importer,
+                patch("goldberg_manager.cli.console", test_console),
+                patch("goldberg_manager.cli.pause") as pause,
+                patch("goldberg_manager.cli.clear_screen"),
+                patch("goldberg_manager.cli.render_header"),
+            ):
+                confirm.return_value.ask.return_value = False
+                import_generated_achievements_menu(config)
+
+        loader.assert_called_once_with()
+        self.assertIs(get_game.call_args.kwargs["translations"], translations)
+        summary_renderer.assert_called_once_with(
+            summary,
+            translations=translations,
+        )
+        self.assertIs(
+            summary_renderer.call_args.kwargs["translations"],
+            translations,
+        )
+        confirm.assert_called_once_with(
+            "Importar 12 achievements para Example Game?",
+            default=True,
+        )
+        safety_backup.assert_not_called()
+        importer.assert_not_called()
+        pause.assert_not_called()
+        rendered = output.getvalue()
+        for expected in (
+            "Destino",
+            str(game.steam_api.parent / "steam_settings"),
+            "Achievements",
+            "12",
+            "Imagens",
+            "9",
+            "Importação",
+            "Nenhum achievement instalado foi encontrado.",
+        ):
+            self.assertIn(expected, rendered)
+
+    def test_existing_targets_translate_and_preserve_default_false(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            config, game, summary = make_import_environment(Path(temp_directory))
+            destination = game.steam_api.parent / "steam_settings"
+            destination.mkdir(parents=True)
+            achievements = destination / "achievements.json"
+            achievements.write_text("[]", encoding="utf-8")
+            images = destination / "img"
+            images.mkdir()
+            output = StringIO()
+            test_console = Console(file=output, width=240, color_system=None)
+
+            with (
+                patch("goldberg_manager.cli.get_menu_game", return_value=game),
+                patch(
+                    "goldberg_manager.cli.read_game_steam_settings",
+                    return_value=SimpleNamespace(app_id=2353060),
+                ),
+                patch(
+                    "goldberg_manager.cli.read_generated_emu_summary",
+                    return_value=summary,
+                ),
+                patch("goldberg_manager.cli.show_emu_config_summary"),
+                patch("goldberg_manager.cli.questionary.confirm") as confirm,
+                patch(
+                    "goldberg_manager.cli.create_settings_safety_backup"
+                ) as safety_backup,
+                patch("goldberg_manager.cli.import_generated_achievements") as importer,
+                patch("goldberg_manager.cli.console", test_console),
+                patch("goldberg_manager.cli.pause") as pause,
+                patch("goldberg_manager.cli.clear_screen"),
+                patch("goldberg_manager.cli.render_header"),
+            ):
+                confirm.return_value.ask.return_value = False
+                import_generated_achievements_menu(
+                    config,
+                    translations=load_translations("en"),
+                )
+
+        confirm.assert_called_once_with(
+            "Import 12 achievements into Example Game?",
+            default=False,
+        )
+        safety_backup.assert_not_called()
+        importer.assert_not_called()
+        pause.assert_not_called()
+        rendered = output.getvalue()
+        self.assertIn(
+            "Warning: achievement data already exists in steam_settings.",
+            rendered,
+        )
+        self.assertIn(str(achievements), rendered)
+        self.assertIn(str(images), rendered)
+        self.assertIn(
+            "A complete steam_settings snapshot will be created before import.",
+            rendered,
+        )
+
+    def test_false_and_none_confirmation_do_not_back_up_import_or_pause(self) -> None:
+        for answer in (False, None):
+            with self.subTest(answer=answer):
+                with tempfile.TemporaryDirectory() as temp_directory:
+                    config, game, summary = make_import_environment(
+                        Path(temp_directory)
+                    )
+
+                    with (
+                        patch("goldberg_manager.cli.get_menu_game", return_value=game),
+                        patch(
+                            "goldberg_manager.cli.read_game_steam_settings",
+                            return_value=SimpleNamespace(app_id=2353060),
+                        ),
+                        patch(
+                            "goldberg_manager.cli.read_generated_emu_summary",
+                            return_value=summary,
+                        ),
+                        patch("goldberg_manager.cli.show_emu_config_summary"),
+                        patch("goldberg_manager.cli.questionary.confirm") as confirm,
+                        patch(
+                            "goldberg_manager.cli.create_settings_safety_backup"
+                        ) as safety_backup,
+                        patch(
+                            "goldberg_manager.cli.import_generated_achievements"
+                        ) as importer,
+                        patch("goldberg_manager.cli.console.print"),
+                        patch("goldberg_manager.cli.pause") as pause,
+                        patch("goldberg_manager.cli.clear_screen"),
+                        patch("goldberg_manager.cli.render_header"),
+                    ):
+                        confirm.return_value.ask.return_value = answer
+                        import_generated_achievements_menu(
+                            config,
+                            translations=RecordingTranslations(),
+                        )
+
+                self.assertTrue(confirm.call_args.kwargs["default"])
+                safety_backup.assert_not_called()
+                importer.assert_not_called()
+                pause.assert_not_called()
+
+    def test_safety_backup_failure_prevents_import(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            config, game, summary = make_import_environment(Path(temp_directory))
+            translations = RecordingTranslations()
+
+            with (
+                patch("goldberg_manager.cli.get_menu_game", return_value=game),
+                patch(
+                    "goldberg_manager.cli.read_game_steam_settings",
+                    return_value=SimpleNamespace(app_id=2353060),
+                ),
+                patch(
+                    "goldberg_manager.cli.read_generated_emu_summary",
+                    return_value=summary,
+                ),
+                patch("goldberg_manager.cli.show_emu_config_summary"),
+                patch("goldberg_manager.cli.questionary.confirm") as confirm,
+                patch(
+                    "goldberg_manager.cli.create_settings_safety_backup",
+                    return_value=False,
+                ) as safety_backup,
+                patch("goldberg_manager.cli.import_generated_achievements") as importer,
+                patch("goldberg_manager.cli.console.print"),
+                patch("goldberg_manager.cli.pause") as pause,
+                patch("goldberg_manager.cli.clear_screen"),
+                patch("goldberg_manager.cli.render_header"),
+            ):
+                confirm.return_value.ask.return_value = True
+                import_generated_achievements_menu(
+                    config,
+                    translations=translations,
+                )
+
+        safety_backup.assert_called_once_with(
+            game,
+            translations=translations,
+        )
+        self.assertIs(safety_backup.call_args.kwargs["translations"], translations)
+        importer.assert_not_called()
+        pause.assert_not_called()
+
+    def test_success_with_images_preserves_order_arguments_identity_and_isolation(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            config, game, summary = make_import_environment(Path(temp_directory))
+            destination = game.steam_api.parent / "steam_settings"
+            translations = RecordingTranslations(
+                {"Pressione Enter para continuar...": "Continue"}
+            )
+            config_before = asdict(config)
+            game_before = asdict(game)
+            summary_before = asdict(summary)
+            events: list[str] = []
+            confirmation = Mock()
+            confirmation.ask.side_effect = lambda: events.append("confirm-ask") or True
+
+            with ExitStack() as stack:
+                get_game = stack.enter_context(
+                    patch(
+                        "goldberg_manager.cli.get_menu_game",
+                        side_effect=lambda *_args, **_kwargs: (
+                            events.append("game") or game
+                        ),
+                    )
+                )
+                settings_reader = stack.enter_context(
+                    patch(
+                        "goldberg_manager.cli.read_game_steam_settings",
+                        side_effect=lambda supplied: (
+                            events.append("settings") or SimpleNamespace(app_id=2353060)
+                        ),
+                    )
+                )
+                summary_reader = stack.enter_context(
+                    patch(
+                        "goldberg_manager.cli.read_generated_emu_summary",
+                        side_effect=lambda *_args: (
+                            events.append("summary-read") or summary
+                        ),
+                    )
+                )
+                summary_renderer = stack.enter_context(
+                    patch(
+                        "goldberg_manager.cli.show_emu_config_summary",
+                        side_effect=lambda *_args, **_kwargs: events.append(
+                            "summary-render"
+                        ),
+                    )
+                )
+                confirm = stack.enter_context(
+                    patch(
+                        "goldberg_manager.cli.questionary.confirm",
+                        side_effect=lambda *_args, **_kwargs: (
+                            events.append("confirm") or confirmation
+                        ),
+                    )
+                )
+                safety_backup = stack.enter_context(
+                    patch(
+                        "goldberg_manager.cli.create_settings_safety_backup",
+                        side_effect=lambda *_args, **_kwargs: (
+                            events.append("backup") or True
+                        ),
+                    )
+                )
+
+                def import_result(
+                    supplied_summary: EmuConfigSummary,
+                    supplied_destination: Path,
+                ) -> AchievementsImportResult:
+                    events.append("import")
+                    return make_import_result(supplied_destination)
+
+                importer = stack.enter_context(
+                    patch(
+                        "goldberg_manager.cli.import_generated_achievements",
+                        side_effect=import_result,
+                    )
+                )
+                pause = stack.enter_context(
+                    patch(
+                        "goldberg_manager.cli.pause",
+                        side_effect=lambda _message: events.append("pause"),
+                    )
+                )
+                unrelated = [
+                    stack.enter_context(patch(f"goldberg_manager.cli.{name}"))
+                    for name in IMPORT_UNRELATED_MUTATIONS
+                ]
+                subprocess_run = stack.enter_context(patch.object(subprocess, "run"))
+                stack.enter_context(patch("goldberg_manager.cli.console.print"))
+                stack.enter_context(patch("goldberg_manager.cli.clear_screen"))
+                stack.enter_context(patch("goldberg_manager.cli.render_header"))
+
+                import_generated_achievements_menu(
+                    config,
+                    game,
+                    translations=translations,
+                )
+
+        get_game.assert_called_once_with(
+            config,
+            game,
+            "Selecione o jogo para importar achievements gerados:",
+            translations=translations,
+        )
+        settings_reader.assert_called_once_with(game)
+        summary_reader.assert_called_once_with(
+            config.goldberg.emu_config_generator,
+            2353060,
+        )
+        summary_renderer.assert_called_once_with(
+            summary,
+            translations=translations,
+        )
+        self.assertIs(
+            summary_renderer.call_args.kwargs["translations"],
+            translations,
+        )
+        confirm.assert_called_once_with(
+            "Importar 12 achievements para Example Game?",
+            default=True,
+        )
+        safety_backup.assert_called_once_with(
+            game,
+            translations=translations,
+        )
+        self.assertIs(safety_backup.call_args.kwargs["translations"], translations)
+        importer.assert_called_once_with(summary, destination)
+        self.assertIs(importer.call_args.args[0], summary)
+        pause.assert_called_once_with("Continue")
+        self.assertEqual(
+            events,
+            [
+                "game",
+                "settings",
+                "summary-read",
+                "summary-render",
+                "confirm",
+                "confirm-ask",
+                "backup",
+                "import",
+                "pause",
+            ],
+        )
+        subprocess_run.assert_not_called()
+        for mutation in unrelated:
+            mutation.assert_not_called()
+        self.assertEqual(asdict(config), config_before)
+        self.assertEqual(asdict(game), game_before)
+        self.assertEqual(asdict(summary), summary_before)
+
+    def test_compiled_english_success_without_images(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            config, game, _ = make_import_environment(Path(temp_directory))
+            summary = make_summary(achievement_images_count=0)
+            output = StringIO()
+            test_console = Console(file=output, width=240, color_system=None)
+
+            with (
+                patch("goldberg_manager.cli.get_menu_game", return_value=game),
+                patch(
+                    "goldberg_manager.cli.read_game_steam_settings",
+                    return_value=SimpleNamespace(app_id=2353060),
+                ),
+                patch(
+                    "goldberg_manager.cli.read_generated_emu_summary",
+                    return_value=summary,
+                ),
+                patch("goldberg_manager.cli.show_emu_config_summary"),
+                patch("goldberg_manager.cli.questionary.confirm") as confirm,
+                patch(
+                    "goldberg_manager.cli.create_settings_safety_backup",
+                    return_value=True,
+                ),
+                patch(
+                    "goldberg_manager.cli.import_generated_achievements",
+                    side_effect=lambda _summary, destination: make_import_result(
+                        destination,
+                        images_count=0,
+                    ),
+                ),
+                patch("goldberg_manager.cli.console", test_console),
+                patch("goldberg_manager.cli.pause") as pause,
+                patch("goldberg_manager.cli.clear_screen"),
+                patch("goldberg_manager.cli.render_header"),
+            ):
+                confirm.return_value.ask.return_value = True
+                import_generated_achievements_menu(
+                    config,
+                    translations=load_translations("en"),
+                )
+
+        confirm.assert_called_once_with(
+            "Import 12 achievements into Example Game?",
+            default=True,
+        )
+        pause.assert_called_once_with("Press Enter to continue...")
+        rendered = output.getvalue()
+        for expected in (
+            "Destination",
+            "Import",
+            "No installed achievements were found.",
+            "Imported achievements",
+            "None",
+            "Import completed successfully!",
+        ):
+            self.assertIn(expected, rendered)
+
+    def test_handled_import_errors_are_literal_without_false_success(self) -> None:
+        translations = load_translations("en")
+
+        for error in (
+            EmuConfigError("failed [red]import[/red]"),
+            OSError("unwritable [bold]destination[/bold]"),
+            ValueError("invalid [cyan]result[/cyan]"),
+        ):
+            with self.subTest(error_type=type(error).__name__):
+                with tempfile.TemporaryDirectory() as temp_directory:
+                    config, game, summary = make_import_environment(
+                        Path(temp_directory)
+                    )
+                    output = StringIO()
+                    test_console = Console(
+                        file=output,
+                        width=240,
+                        color_system=None,
+                    )
+
+                    with (
+                        patch("goldberg_manager.cli.get_menu_game", return_value=game),
+                        patch(
+                            "goldberg_manager.cli.read_game_steam_settings",
+                            return_value=SimpleNamespace(app_id=2353060),
+                        ),
+                        patch(
+                            "goldberg_manager.cli.read_generated_emu_summary",
+                            return_value=summary,
+                        ),
+                        patch("goldberg_manager.cli.show_emu_config_summary"),
+                        patch("goldberg_manager.cli.questionary.confirm") as confirm,
+                        patch(
+                            "goldberg_manager.cli.create_settings_safety_backup",
+                            return_value=True,
+                        ),
+                        patch(
+                            "goldberg_manager.cli.import_generated_achievements",
+                            side_effect=error,
+                        ) as importer,
+                        patch("goldberg_manager.cli.console", test_console),
+                        patch("goldberg_manager.cli.pause") as pause,
+                        patch("goldberg_manager.cli.clear_screen"),
+                        patch("goldberg_manager.cli.render_header"),
+                    ):
+                        confirm.return_value.ask.return_value = True
+                        import_generated_achievements_menu(
+                            config,
+                            translations=translations,
+                        )
+
+                importer.assert_called_once_with(
+                    summary,
+                    game.steam_api.parent / "steam_settings",
+                )
+                pause.assert_called_once_with("Press Enter to continue...")
+                rendered = output.getvalue()
+                self.assertIn("Failed to import achievements.", rendered)
+                self.assertIn(str(error), rendered)
+                self.assertNotIn("Import completed successfully!", rendered)
+
+    def test_unexpected_import_error_propagates_without_success_or_pause(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            config, game, summary = make_import_environment(Path(temp_directory))
+            error = LookupError("unexpected import writer")
+            output = StringIO()
+            test_console = Console(file=output, width=240, color_system=None)
+
+            with (
+                patch("goldberg_manager.cli.get_menu_game", return_value=game),
+                patch(
+                    "goldberg_manager.cli.read_game_steam_settings",
+                    return_value=SimpleNamespace(app_id=2353060),
+                ),
+                patch(
+                    "goldberg_manager.cli.read_generated_emu_summary",
+                    return_value=summary,
+                ),
+                patch("goldberg_manager.cli.show_emu_config_summary"),
+                patch("goldberg_manager.cli.questionary.confirm") as confirm,
+                patch(
+                    "goldberg_manager.cli.create_settings_safety_backup",
+                    return_value=True,
+                ),
+                patch(
+                    "goldberg_manager.cli.import_generated_achievements",
+                    side_effect=error,
+                ),
+                patch("goldberg_manager.cli.console", test_console),
+                patch("goldberg_manager.cli.pause") as pause,
+                patch("goldberg_manager.cli.clear_screen"),
+                patch("goldberg_manager.cli.render_header"),
+                self.assertRaises(LookupError) as raised,
+            ):
+                confirm.return_value.ask.return_value = True
+                import_generated_achievements_menu(
+                    config,
+                    translations=load_translations("en"),
+                )
+
+        self.assertIs(raised.exception, error)
+        pause.assert_not_called()
+        self.assertNotIn("Import completed successfully!", output.getvalue())
+
+    def test_missing_post_import_file_suppresses_success(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            config, game, summary = make_import_environment(Path(temp_directory))
+            output = StringIO()
+            test_console = Console(file=output, width=240, color_system=None)
+
+            with (
+                patch("goldberg_manager.cli.get_menu_game", return_value=game),
+                patch(
+                    "goldberg_manager.cli.read_game_steam_settings",
+                    return_value=SimpleNamespace(app_id=2353060),
+                ),
+                patch(
+                    "goldberg_manager.cli.read_generated_emu_summary",
+                    return_value=summary,
+                ),
+                patch("goldberg_manager.cli.show_emu_config_summary"),
+                patch("goldberg_manager.cli.questionary.confirm") as confirm,
+                patch(
+                    "goldberg_manager.cli.create_settings_safety_backup",
+                    return_value=True,
+                ),
+                patch(
+                    "goldberg_manager.cli.import_generated_achievements",
+                    side_effect=lambda _summary, destination: make_import_result(
+                        destination,
+                        write_achievements=False,
+                    ),
+                ),
+                patch("goldberg_manager.cli.console", test_console),
+                patch("goldberg_manager.cli.pause") as pause,
+                patch("goldberg_manager.cli.clear_screen"),
+                patch("goldberg_manager.cli.render_header"),
+            ):
+                confirm.return_value.ask.return_value = True
+                import_generated_achievements_menu(
+                    config,
+                    translations=load_translations("en"),
+                )
+
+        pause.assert_called_once_with("Press Enter to continue...")
+        rendered = output.getvalue()
+        self.assertIn(
+            "The import finished, but achievements.json was not found at the destination.",
+            rendered,
+        )
+        self.assertNotIn("Import completed successfully!", rendered)
+
+    def test_rich_like_translations_game_paths_and_results_are_literal(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="[bold]literal-root") as directory:
+            config, game, summary = make_import_environment(Path(directory))
+            game.name = "Game [red]literal[/red]"
+            translations = RecordingTranslations(
+                {
+                    "Destino": "[cyan]literal destination[/cyan]",
+                    "Achievements": "[blue]literal achievements[/blue]",
+                    "Imagens": "[magenta]literal images[/magenta]",
+                    "Importação": "[yellow]literal import[/yellow]",
+                    "Nenhum achievement instalado foi encontrado.": (
+                        "[green]literal empty state[/green]"
+                    ),
+                    "Jogo": "[bold]literal game label[/bold]",
+                    "Nenhuma": "[italic]literal none[/italic]",
+                    "Achievements importados": "[red]literal result title[/red]",
+                    "Importação concluída com sucesso!": (
+                        "[cyan]literal success[/cyan]"
+                    ),
+                    "Importar {count} achievements para {game}?": (
+                        "[blue]Import {count} into {game}[/blue]"
+                    ),
+                    "Pressione Enter para continuar...": "Continue",
+                }
+            )
+            output = StringIO()
+            test_console = Console(file=output, width=300, color_system=None)
+
+            with (
+                patch("goldberg_manager.cli.get_menu_game", return_value=game),
+                patch(
+                    "goldberg_manager.cli.read_game_steam_settings",
+                    return_value=SimpleNamespace(app_id=2353060),
+                ),
+                patch(
+                    "goldberg_manager.cli.read_generated_emu_summary",
+                    return_value=summary,
+                ),
+                patch("goldberg_manager.cli.show_emu_config_summary"),
+                patch("goldberg_manager.cli.questionary.confirm") as confirm,
+                patch(
+                    "goldberg_manager.cli.create_settings_safety_backup",
+                    return_value=True,
+                ),
+                patch(
+                    "goldberg_manager.cli.import_generated_achievements",
+                    side_effect=lambda _summary, destination: make_import_result(
+                        destination,
+                        images_count=0,
+                    ),
+                ),
+                patch("goldberg_manager.cli.console", test_console),
+                patch("goldberg_manager.cli.pause") as pause,
+                patch("goldberg_manager.cli.clear_screen"),
+                patch("goldberg_manager.cli.render_header"),
+            ):
+                confirm.return_value.ask.return_value = True
+                import_generated_achievements_menu(
+                    config,
+                    game,
+                    translations=translations,
+                )
+
+        confirm.assert_called_once_with(
+            "[blue]Import 12 into Game [red]literal[/red][/blue]",
+            default=True,
+        )
+        pause.assert_called_once_with("Continue")
+        rendered = output.getvalue()
+        for expected in (
+            "[cyan]literal destination[/cyan]",
+            "[blue]literal achievements[/blue]",
+            "[magenta]literal images[/magenta]",
+            "[yellow]literal import[/yellow]",
+            "[green]literal empty state[/green]",
+            "[bold]literal game label[/bold]",
+            "Game [red]literal[/red]",
+            "[italic]literal none[/italic]",
+            "[red]literal result title[/red]",
+            "[cyan]literal success[/cyan]",
+            str(game.steam_api.parent / "steam_settings"),
+        ):
+            self.assertIn(expected, rendered)
+
+
+class SettingsSafetyBackupI18nTests(unittest.TestCase):
+    def test_standalone_default_loads_once_and_missing_settings_are_silent(
+        self,
+    ) -> None:
+        translations = RecordingTranslations()
+
+        with (
+            patch(
+                "goldberg_manager.cli.load_translations",
+                return_value=translations,
+            ) as loader,
+            patch(
+                "goldberg_manager.cli.get_steam_settings_directory",
+                return_value=Path("/missing/steam_settings"),
+            ),
+            patch("goldberg_manager.cli.create_steam_settings_backup") as writer,
+            patch("goldberg_manager.cli.console.print") as print_output,
+            patch("goldberg_manager.cli.pause") as pause,
+        ):
+            result = create_settings_safety_backup(make_game())
+
+        self.assertTrue(result)
+        loader.assert_called_once_with()
+        writer.assert_not_called()
+        print_output.assert_not_called()
+        pause.assert_not_called()
+
+    def test_explicit_translations_bypass_loader_and_render_success_path_literally(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            settings_directory = Path(temp_directory) / "steam_settings"
+            settings_directory.mkdir()
+            (settings_directory / "steam_appid.txt").write_text(
+                "2353060",
+                encoding="utf-8",
+            )
+            snapshot = Path("/backup/[red]literal-snapshot[/red]")
+            translations = RecordingTranslations(
+                {"Backup de segurança criado:": "[bold]literal backup[/bold]"}
+            )
+            output = StringIO()
+            test_console = Console(file=output, width=240, color_system=None)
+
+            with (
+                patch("goldberg_manager.cli.load_translations") as loader,
+                patch(
+                    "goldberg_manager.cli.get_steam_settings_directory",
+                    return_value=settings_directory,
+                ),
+                patch(
+                    "goldberg_manager.cli.create_steam_settings_backup",
+                    return_value=snapshot,
+                ) as writer,
+                patch("goldberg_manager.cli.console", test_console),
+                patch("goldberg_manager.cli.pause") as pause,
+            ):
+                result = create_settings_safety_backup(
+                    make_game(),
+                    translations=translations,
+                )
+
+        self.assertTrue(result)
+        loader.assert_not_called()
+        writer.assert_called_once()
+        pause.assert_not_called()
+        self.assertIn("[bold]literal backup[/bold]", output.getvalue())
+        self.assertIn(str(snapshot), output.getvalue())
+
+    def test_handled_writer_errors_translate_and_remain_literal(self) -> None:
+        for error in (
+            FileNotFoundError("missing [red]source[/red]"),
+            OSError("unwritable [bold]backup[/bold]"),
+            ValueError("invalid [cyan]settings[/cyan]"),
+        ):
+            with self.subTest(error_type=type(error).__name__):
+                with tempfile.TemporaryDirectory() as temp_directory:
+                    settings_directory = Path(temp_directory) / "steam_settings"
+                    settings_directory.mkdir()
+                    (settings_directory / "steam_appid.txt").write_text(
+                        "2353060",
+                        encoding="utf-8",
+                    )
+                    translations = RecordingTranslations(
+                        {
+                            "Não foi possível criar o backup de segurança:": (
+                                "[red]literal failure frame[/red]"
+                            ),
+                            "A alteração foi cancelada para proteger a configuração atual.": (
+                                "[yellow]literal cancellation[/yellow]"
+                            ),
+                            "Pressione Enter para continuar...": "Continue",
+                        }
+                    )
+                    output = StringIO()
+                    test_console = Console(
+                        file=output,
+                        width=240,
+                        color_system=None,
+                    )
+
+                    with (
+                        patch("goldberg_manager.cli.load_translations") as loader,
+                        patch(
+                            "goldberg_manager.cli.get_steam_settings_directory",
+                            return_value=settings_directory,
+                        ),
+                        patch(
+                            "goldberg_manager.cli.create_steam_settings_backup",
+                            side_effect=error,
+                        ) as writer,
+                        patch("goldberg_manager.cli.console", test_console),
+                        patch("goldberg_manager.cli.pause") as pause,
+                    ):
+                        result = create_settings_safety_backup(
+                            make_game(),
+                            translations=translations,
+                        )
+
+                self.assertFalse(result)
+                loader.assert_not_called()
+                writer.assert_called_once()
+                pause.assert_called_once_with("Continue")
+                rendered = output.getvalue()
+                self.assertIn("[red]literal failure frame[/red]", rendered)
+                self.assertIn(str(error), rendered)
+                self.assertIn("[yellow]literal cancellation[/yellow]", rendered)
+
+    def test_unexpected_writer_error_propagates_without_pause(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            settings_directory = Path(temp_directory) / "steam_settings"
+            settings_directory.mkdir()
+            (settings_directory / "steam_appid.txt").write_text(
+                "2353060",
+                encoding="utf-8",
+            )
+            error = RuntimeError("unexpected safety backup writer")
+
+            with (
+                patch(
+                    "goldberg_manager.cli.get_steam_settings_directory",
+                    return_value=settings_directory,
+                ),
+                patch(
+                    "goldberg_manager.cli.create_steam_settings_backup",
+                    side_effect=error,
+                ),
+                patch("goldberg_manager.cli.pause") as pause,
+                self.assertRaises(RuntimeError) as raised,
+            ):
+                create_settings_safety_backup(
+                    make_game(),
+                    translations=RecordingTranslations(),
+                )
+
+        self.assertIs(raised.exception, error)
+        pause.assert_not_called()
 
 
 if __name__ == "__main__":

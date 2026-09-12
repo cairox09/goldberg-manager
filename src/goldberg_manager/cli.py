@@ -3563,7 +3563,15 @@ def show_current_steam_settings_menu(
 
 def create_settings_safety_backup(
     game: Game,
+    *,
+    translations: Translations | None = None,
 ) -> bool:
+    if translations is None:
+        translations = load_translations()
+
+    def message(text: str) -> str:
+        return translations.gettext(text)
+
     steam_settings_directory = get_steam_settings_directory(game)
 
     if not steam_settings_directory.is_dir():
@@ -3580,18 +3588,29 @@ def create_settings_safety_backup(
         OSError,
         ValueError,
     ) as exc:
-        console.print(f"[red]Não foi possível criar o backup de segurança:[/red] {exc}")
+        error_message = Text()
+        error_message.append(
+            message("Não foi possível criar o backup de segurança:"),
+            style="red",
+        )
+        error_message.append(" ")
+        error_message.append(str(exc))
+        console.print(error_message)
 
         console.print(
-            "[yellow]A alteração foi cancelada "
-            "para proteger a configuração atual.[/yellow]"
+            Text(
+                message(
+                    "A alteração foi cancelada para proteger a configuração atual."
+                ),
+                style="yellow",
+            )
         )
 
-        pause()
+        pause(message("Pressione Enter para continuar..."))
         return False
 
-    console.print("[dim]Backup de segurança criado:[/dim]")
-    console.print(f"[dim]{snapshot_path}[/dim]")
+    console.print(Text(message("Backup de segurança criado:"), style="dim"))
+    console.print(Text(str(snapshot_path), style="dim"))
 
     return True
 
@@ -5876,14 +5895,23 @@ def generate_emu_config_menu(
 def import_generated_achievements_menu(
     config: AppConfig,
     game: Game | None = None,
+    *,
+    translations: Translations | None = None,
 ) -> None:
     clear_screen()
     render_header()
+
+    if translations is None:
+        translations = load_translations()
+
+    def message(text: str) -> str:
+        return translations.gettext(text)
 
     game = get_menu_game(
         config,
         game,
         ("Selecione o jogo para importar achievements gerados:"),
+        translations=translations,
     )
 
     if game is None:
@@ -5892,42 +5920,59 @@ def import_generated_achievements_menu(
     generator = config.goldberg.emu_config_generator
 
     if generator is None or not generator.is_file():
+        missing_generator = Text()
+        missing_generator.append(
+            message("generate_emu_config não está configurado ou não foi encontrado."),
+            style="yellow",
+        )
+        missing_generator.append("\n\n")
+        missing_generator.append(
+            message("Entre em Configurações e use 'Detectar generate_emu_config'.")
+        )
         console.print(
             Panel.fit(
-                "[yellow]generate_emu_config "
-                "não está configurado ou "
-                "não foi encontrado.[/yellow]\n\n"
-                "Entre em Configurações e use "
-                "'Detectar generate_emu_config'.",
+                missing_generator,
                 border_style="yellow",
                 box=box.ROUNDED,
             )
         )
 
-        pause()
+        pause(message("Pressione Enter para continuar..."))
         return
 
     try:
         snapshot = read_game_steam_settings(game)
     except (OSError, ValueError) as exc:
-        console.print(f"[red]Não foi possível ler steam_settings:[/red] {exc}")
-        pause()
+        error_message = Text()
+        error_message.append(
+            message("Não foi possível ler steam_settings:"),
+            style="red",
+        )
+        error_message.append(" ")
+        error_message.append(str(exc))
+        console.print(error_message)
+        pause(message("Pressione Enter para continuar..."))
         return
 
     if snapshot.app_id is None:
+        missing_app_id = Text()
+        missing_app_id.append(
+            message("Este jogo ainda não possui Steam AppID configurado."),
+            style="yellow",
+        )
+        missing_app_id.append("\n\n")
+        missing_app_id.append(
+            message("Configure primeiro o AppID pelo Assistente."),
+        )
         console.print(
             Panel.fit(
-                "[yellow]Este jogo ainda não "
-                "possui Steam AppID "
-                "configurado.[/yellow]\n\n"
-                "Configure primeiro o AppID "
-                "pelo Assistente.",
+                missing_app_id,
                 border_style="yellow",
                 box=box.ROUNDED,
             )
         )
 
-        pause()
+        pause(message("Pressione Enter para continuar..."))
         return
 
     app_id = snapshot.app_id
@@ -5942,31 +5987,43 @@ def import_generated_achievements_menu(
         OSError,
         ValueError,
     ) as exc:
+        error_message = Text()
+        error_message.append(
+            message("Não foi possível ler os dados gerados pelo GSE."),
+            style="red",
+        )
+        error_message.append("\n\n")
+        error_message.append(str(exc))
         console.print(
             Panel.fit(
-                f"[red]Não foi possível ler os dados gerados pelo GSE.[/red]\n\n{exc}",
+                error_message,
                 border_style="red",
                 box=box.ROUNDED,
             )
         )
 
-        pause()
+        pause(message("Pressione Enter para continuar..."))
         return
 
     if not summary.has_achievements:
+        missing_achievements = Text()
+        missing_achievements.append(
+            message("Nenhum achievement foi encontrado no output deste AppID."),
+            style="yellow",
+        )
+        missing_achievements.append("\n\n")
+        missing_achievements.append(
+            message("Use primeiro a opção 'Gerar dados Steam / achievements'.")
+        )
         console.print(
             Panel.fit(
-                "[yellow]Nenhum achievement "
-                "foi encontrado no output "
-                "deste AppID.[/yellow]\n\n"
-                "Use primeiro a opção "
-                "'Gerar dados Steam / achievements'.",
+                missing_achievements,
                 border_style="yellow",
                 box=box.ROUNDED,
             )
         )
 
-        pause()
+        pause(message("Pressione Enter para continuar..."))
         return
 
     destination = get_steam_settings_directory(game)
@@ -5975,7 +6032,10 @@ def import_generated_achievements_menu(
 
     images_destination = destination / "img"
 
-    show_emu_config_summary(summary)
+    show_emu_config_summary(
+        summary,
+        translations=translations,
+    )
 
     console.print()
 
@@ -5991,24 +6051,24 @@ def import_generated_achievements_menu(
     )
 
     destination_table.add_row(
-        "Destino",
-        str(destination),
+        Text(message("Destino")),
+        Text(str(destination)),
     )
 
     destination_table.add_row(
-        "Achievements",
-        str(summary.achievements_count),
+        Text(message("Achievements")),
+        Text(str(summary.achievements_count)),
     )
 
     destination_table.add_row(
-        "Imagens",
-        str(summary.achievement_images_count),
+        Text(message("Imagens")),
+        Text(str(summary.achievement_images_count)),
     )
 
     console.print(
         Panel(
             destination_table,
-            title="Importação",
+            title=Text(message("Importação")),
             border_style="cyan",
             box=box.ROUNDED,
         )
@@ -6025,36 +6085,54 @@ def import_generated_achievements_menu(
     if existing_targets:
         console.print()
         console.print(
-            "[yellow]Atenção: já existem "
-            "dados de achievements no "
-            "steam_settings.[/yellow]"
+            Text(
+                message("Atenção: já existem dados de achievements no steam_settings."),
+                style="yellow",
+            )
         )
 
         for path in existing_targets:
-            console.print(f"[yellow]• {path}[/yellow]")
+            existing_path = Text("• ", style="yellow")
+            existing_path.append(str(path), style="yellow")
+            console.print(existing_path)
 
         console.print()
         console.print(
-            "[dim]Um snapshot completo do "
-            "steam_settings será criado "
-            "antes da importação.[/dim]"
+            Text(
+                message(
+                    "Um snapshot completo do steam_settings será criado antes da "
+                    "importação."
+                ),
+                style="dim",
+            )
         )
 
     else:
         console.print()
-        console.print("[dim]Nenhum achievement instalado foi encontrado.[/dim]")
+        console.print(
+            Text(
+                message("Nenhum achievement instalado foi encontrado."),
+                style="dim",
+            )
+        )
 
     console.print()
 
     confirm = questionary.confirm(
-        (f"Importar {summary.achievements_count} achievements para {game.name}?"),
+        message("Importar {count} achievements para {game}?").format(
+            count=summary.achievements_count,
+            game=game.name,
+        ),
         default=not existing_targets,
     ).ask()
 
     if not confirm:
         return
 
-    if not create_settings_safety_backup(game):
+    if not create_settings_safety_backup(
+        game,
+        translations=translations,
+    ):
         return
 
     try:
@@ -6067,30 +6145,40 @@ def import_generated_achievements_menu(
         OSError,
         ValueError,
     ) as exc:
+        error_message = Text()
+        error_message.append(
+            message("Falha ao importar achievements."),
+            style="red",
+        )
+        error_message.append("\n\n")
+        error_message.append(str(exc))
         console.print(
             Panel.fit(
-                f"[red]Falha ao importar achievements.[/red]\n\n{exc}",
+                error_message,
                 border_style="red",
                 box=box.ROUNDED,
             )
         )
 
-        pause()
+        pause(message("Pressione Enter para continuar..."))
         return
 
     if not result.achievements_file.is_file():
         console.print(
             Panel.fit(
-                "[red]A importação terminou, "
-                "mas achievements.json "
-                "não foi encontrado no "
-                "destino.[/red]",
+                Text(
+                    message(
+                        "A importação terminou, mas achievements.json não foi encontrado "
+                        "no destino."
+                    ),
+                    style="red",
+                ),
                 border_style="red",
                 box=box.ROUNDED,
             )
         )
 
-        pause()
+        pause(message("Pressione Enter para continuar..."))
         return
 
     clear_screen()
@@ -6108,39 +6196,44 @@ def import_generated_achievements_menu(
     )
 
     result_table.add_row(
-        "Jogo",
-        game.name,
+        Text(message("Jogo")),
+        Text(str(game.name)),
+    )
+
+    achievements_status = Text("✓ ", style="green")
+    achievements_status.append(str(result.achievements_count), style="green")
+    result_table.add_row(
+        Text(message("Achievements")),
+        achievements_status,
+    )
+
+    if result.images_count:
+        images_status = Text("✓ ", style="green")
+        images_status.append(str(result.images_count), style="green")
+    else:
+        images_status = Text("— ", style="yellow")
+        images_status.append(message("Nenhuma"), style="yellow")
+
+    result_table.add_row(
+        Text(message("Imagens")),
+        images_status,
     )
 
     result_table.add_row(
-        "Achievements",
-        (f"[green]✓ {result.achievements_count}[/green]"),
-    )
-
-    result_table.add_row(
-        "Imagens",
-        (
-            f"[green]✓ {result.images_count}[/green]"
-            if result.images_count
-            else "[yellow]— Nenhuma[/yellow]"
-        ),
-    )
-
-    result_table.add_row(
-        "achievements.json",
-        str(result.achievements_file),
+        Text("achievements.json"),
+        Text(str(result.achievements_file)),
     )
 
     if result.images_directory is not None:
         result_table.add_row(
-            "Imagens",
-            str(result.images_directory),
+            Text(message("Imagens")),
+            Text(str(result.images_directory)),
         )
 
     console.print(
         Panel(
             result_table,
-            title="Achievements importados",
+            title=Text(message("Achievements importados")),
             border_style="green",
             box=box.ROUNDED,
         )
@@ -6148,9 +6241,14 @@ def import_generated_achievements_menu(
 
     console.print()
 
-    console.print("[bold green]✓ Importação concluída com sucesso![/bold green]")
+    success_message = Text("✓ ", style="bold green")
+    success_message.append(
+        message("Importação concluída com sucesso!"),
+        style="bold green",
+    )
+    console.print(success_message)
 
-    pause()
+    pause(message("Pressione Enter para continuar..."))
 
 
 def goldberg_game_assistant_menu(
